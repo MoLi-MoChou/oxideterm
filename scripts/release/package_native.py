@@ -348,11 +348,38 @@ def target_label(triple: str) -> str:
     return labels.get(triple, triple.replace("-", "_"))
 
 
+def env_flag_enabled(name: str) -> bool:
+    """Return True when a packaging env override is set to a truthy value."""
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def cargo_profile() -> str:
+    """Select the cargo profile used for package builds.
+
+    OXIDETERM_FAST_PACKAGE=1 switches CI packages to release-fast (no LTO,
+    higher codegen-units). Local `cargo build --release` is unchanged.
+    """
+    if env_flag_enabled("OXIDETERM_FAST_PACKAGE"):
+        return "release-fast"
+    return "release"
+
+
+def should_skip_portable() -> bool:
+    """Skip portable zip/tarball when OXIDETERM_SKIP_PORTABLE is set."""
+    return env_flag_enabled("OXIDETERM_SKIP_PORTABLE")
+
+
 def release_binary(target: str, target_was_explicit: bool, name: str) -> Path:
     binary_name = f"{name}.exe" if "windows" in target else name
+    profile = cargo_profile()
     if target_was_explicit:
-        return ROOT_DIR / "target" / target / "release" / binary_name
-    return ROOT_DIR / "target" / "release" / binary_name
+        return ROOT_DIR / "target" / target / profile / binary_name
+    return ROOT_DIR / "target" / profile / binary_name
+
+
+def cargo_build_profile_args() -> list[str]:
+    """Return cargo profile flags for package builds."""
+    return ["--profile", cargo_profile()]
 
 
 def make_executable(path: Path) -> None:
@@ -455,7 +482,7 @@ def native_cargo_build_env(target: str) -> dict[str, str]:
 
 
 def build_cli(target: str, target_was_explicit: bool) -> Path:
-    args = ["cargo", "build", "-p", "oxideterm-cli", "--release"]
+    args = ["cargo", "build", "-p", "oxideterm-cli", *cargo_build_profile_args()]
     if target_was_explicit:
         args.extend(["--target", target])
     run(args, env=native_cargo_build_env(target))
@@ -474,7 +501,7 @@ def build_cli(target: str, target_was_explicit: bool) -> Path:
 
 
 def build_helper(package: str, target: str, target_was_explicit: bool) -> Path:
-    args = ["cargo", "build", "-p", package, "--release"]
+    args = ["cargo", "build", "-p", package, *cargo_build_profile_args()]
     if target_was_explicit:
         args.extend(["--target", target])
     run(args, env=native_cargo_build_env(target))
@@ -505,7 +532,7 @@ def build_update_helper(target: str, target_was_explicit: bool) -> Path:
         UPDATE_HELPER_PACKAGE,
         "--bin",
         UPDATE_HELPER_BIN,
-        "--release",
+        *cargo_build_profile_args(),
     ]
     if target_was_explicit:
         args.extend(["--target", target])
@@ -525,7 +552,7 @@ def build_app(target: str, target_was_explicit: bool) -> Path:
         str(APP_MANIFEST),
         "--bin",
         APP_BIN,
-        "--release",
+        *cargo_build_profile_args(),
     ]
     if target_was_explicit:
         args.extend(["--target", target])
@@ -1753,7 +1780,8 @@ def main() -> None:
     DIST_DIR.mkdir()
 
     print(
-        f"==> Packaging {identity.app_name} {version} ({identity.channel}) for {target}",
+        f"==> Packaging {identity.app_name} {version} ({identity.channel}) for {target} "
+        f"[profile={cargo_profile()}]",
         flush=True,
     )
     build_cli(target, target_was_explicit)
@@ -1766,9 +1794,13 @@ def main() -> None:
         create_windows_installer(app_binary, update_helper, target, version, label, identity)
     if "apple-darwin" in target:
         sign_macos_path(app_binary)
-    # Every target should publish a self-contained portable artifact; Windows
-    # additionally ships an NSIS installer for users who prefer installation.
-    create_portable_package(app_binary, update_helper, target, version, label)
+    # Portable packages are optional on CI (OXIDETERM_SKIP_PORTABLE=1) so preview
+    # runs can ship only the NSIS installer. Formal releases can opt back in via
+    # the workflow include_portable input.
+    if should_skip_portable():
+        print("==> Skipping portable package (OXIDETERM_SKIP_PORTABLE)", flush=True)
+    else:
+        create_portable_package(app_binary, update_helper, target, version, label)
     if "apple-darwin" in target:
         create_macos_app(app_binary, target, version, label, identity)
     if "linux" in target:
