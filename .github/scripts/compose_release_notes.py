@@ -12,7 +12,7 @@ from urllib.parse import quote
 
 CHANGELOG_MARKER = "<!-- RELEASE_CHANGELOG -->"
 DOWNLOADS_MARKER = "<!-- RELEASE_DOWNLOADS -->"
-REPOSITORY_RELEASE_URL = "https://github.com/AnalyseDeCircuit/oxideterm/releases/download"
+REPOSITORY_RELEASE_URL = "https://github.com/MoLi-MoChou/oxideterm/releases/download"
 
 
 def normalize_leading_summary(section: str) -> str:

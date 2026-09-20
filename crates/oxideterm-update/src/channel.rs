@@ -4,9 +4,9 @@
 use oxideterm_settings::UpdateChannel;
 
 pub const STABLE_UPDATE_ENDPOINT: &str =
-    "https://github.com/AnalyseDeCircuit/oxideterm/releases/latest/download/latest.json";
+    "https://github.com/MoLi-MoChou/oxideterm/releases/latest/download/latest.json";
 pub const BETA_UPDATE_ENDPOINT: &str =
-    "https://github.com/AnalyseDeCircuit/oxideterm/releases/download/updater-beta/latest.json";
+    "https://github.com/MoLi-MoChou/oxideterm/releases/download/updater-beta/latest.json";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct UpdateEndpoint {
