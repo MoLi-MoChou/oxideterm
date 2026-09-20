@@ -233,7 +233,7 @@ pub enum Command {
     #[command(about = "Open a temporary SSH terminal in the native GUI")]
     Ssh(SshLaunchArgs),
     #[command(
-        about = "Open an ssh://, telnet://, mosh://, rdp://, or vnc:// URI in the native GUI"
+        about = "Open a connection URI or Xshell .xsh/.xts session file in the native GUI"
     )]
     Open(ConnectionUriArgs),
     #[command(about = "Inspect and manage saved SSH port forwards")]

@@ -13,6 +13,12 @@ use serde::{Deserialize, Serialize};
 use url::Host;
 use zeroize::Zeroizing;
 
+mod xshell_session;
+pub use xshell_session::{
+    ParseXshellSessionError, is_xshell_session_path, parse_xshell_session_path,
+    parse_xshell_session_text,
+};
+
 /// Default port used by temporary SSH launch targets.
 pub const DEFAULT_SSH_PORT: u16 = 22;
 pub const DEFAULT_TELNET_PORT: u16 = 23;
@@ -47,6 +53,10 @@ pub struct TemporarySshLaunch {
     pub port: u16,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub password: Option<Zeroizing<String>>,
+    /// Optional private-key path from an Xshell session file. Never persisted
+    /// beyond the temporary launch handoff.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key_path: Option<String>,
 }
 
 impl TemporarySshLaunch {
@@ -66,6 +76,7 @@ impl fmt::Debug for TemporarySshLaunch {
                 "password",
                 &self.password.as_ref().map(|_| "[redacted secret]"),
             )
+            .field("key_path", &self.key_path)
             .finish()
     }
 }
@@ -278,6 +289,7 @@ pub fn parse_connection_uri(
                 host,
                 port: explicit_port.unwrap_or(DEFAULT_SSH_PORT),
                 password,
+                key_path: None,
             }))
         }
         "telnet" => {
@@ -655,6 +667,7 @@ mod tests {
                 host,
                 port: 2200,
                 password: Some(password),
+                key_path: None,
             }) if username == "alice" && host == "2001:db8::10" && password.as_str() == "p@ss"
         ));
 

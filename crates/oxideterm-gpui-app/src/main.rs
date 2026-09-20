@@ -111,6 +111,7 @@ fn main() {
     let single_instance = single_instance::acquire_or_forward(
         native_launch_args.handoff_path.clone(),
         native_launch_args.connection_launch,
+        native_launch_args.session_file_launch,
     )
     .unwrap_or_else(|error| {
         eprintln!("failed to initialize OxideTerm single-instance guard: {error}");
@@ -157,12 +158,17 @@ fn main() {
         .unwrap_or_default();
     if startup_launch.is_some()
         && handoff_launch.is_none()
+        && !native_launch_args.session_file_launch
         && !startup_settings.general.external_connection_uris_enabled
     {
         // A disabled external URI must not open an unrelated workspace window.
+        // Explicit Xshell session-file opens still proceed.
         return;
     }
     let native_connection_launch = handoff_launch.or_else(|| {
+        if native_launch_args.session_file_launch {
+            return startup_launch;
+        }
         startup_settings
             .general
             .external_connection_uris_enabled
@@ -415,6 +421,9 @@ fn open_primary_window(
 struct NativeLaunchArgs {
     handoff_path: Option<PathBuf>,
     connection_launch: Option<oxideterm_ssh_launch::NativeConnectionLaunch>,
+    /// Session-file opens are explicit user document launches and must not be
+    /// gated by the external connection URI preference.
+    session_file_launch: bool,
 }
 
 fn native_launch_args() -> Result<NativeLaunchArgs, String> {
@@ -422,6 +431,7 @@ fn native_launch_args() -> Result<NativeLaunchArgs, String> {
     let _program = args.next();
     let mut handoff_path = None;
     let mut connection_launch = None;
+    let mut session_file_launch = false;
     let default_username = whoami::username();
     while let Some(arg) = args.next() {
         if arg == "--ssh-launch-file" || arg == "--connection-launch-file" {
@@ -437,6 +447,19 @@ fn native_launch_args() -> Result<NativeLaunchArgs, String> {
         let Ok(arg) = arg.into_string() else {
             continue;
         };
+        let trimmed = arg.trim().trim_matches(|ch| matches!(ch, '"' | '\''));
+        let path = PathBuf::from(trimmed);
+        if oxideterm_ssh_launch::is_xshell_session_path(&path) {
+            if handoff_path.is_some() || connection_launch.is_some() {
+                return Err("only one native connection launch may be supplied".to_string());
+            }
+            connection_launch = Some(
+                oxideterm_ssh_launch::parse_xshell_session_path(&path, Some(&default_username))
+                    .map_err(|error| error.to_string())?,
+            );
+            session_file_launch = true;
+            continue;
+        }
         if !looks_like_connection_uri(&arg) {
             continue;
         }
@@ -452,6 +475,7 @@ fn native_launch_args() -> Result<NativeLaunchArgs, String> {
     Ok(NativeLaunchArgs {
         handoff_path,
         connection_launch,
+        session_file_launch,
     })
 }
 

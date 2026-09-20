@@ -1117,9 +1117,13 @@ impl WorkspaceApp {
         cx: &mut Context<Self>,
     ) -> Result<()> {
         let title = launch.title();
-        let auth = match launch.password {
-            Some(password) => AuthMethod::password_secret(password),
-            None => AuthMethod::Agent,
+        // Xshell open-and-connect may supply an empty password for bastion
+        // one-shots, or a key path from the session file. Encrypted Xshell
+        // passwords are never present here.
+        let auth = match (launch.key_path, launch.password) {
+            (Some(key_path), passphrase) => AuthMethod::key_secret(key_path, passphrase),
+            (None, Some(password)) => AuthMethod::password_secret(password),
+            (None, None) => AuthMethod::Agent,
         };
         let config = SshConfig {
             host: launch.host,

@@ -100,6 +100,7 @@ fn build_launch(args: SshLaunchArgs) -> CliResult<TemporarySshLaunch> {
         host,
         port: args.port.unwrap_or(22),
         password,
+        key_path: None,
     })
 }
 
