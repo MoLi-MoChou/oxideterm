@@ -405,6 +405,30 @@ def verify_windows_installer(path: Path, expected_version: str) -> None:
             raise RuntimeError(f"{path.name} does not contain version {expected_version}")
 
 
+def select_windows_installer_app_binary(matches: list[Path]) -> Path:
+    """Pick the primary app binary from an extracted NSIS payload.
+
+    The installer embeds the payload twice: once for normal install and once
+    under the update staging directory (`install/`). 7-Zip therefore extracts
+    two identical `oxideterm-native.exe` copies. Prefer the non-staging copy.
+    """
+    if not matches:
+        raise RuntimeError("expected oxideterm-native.exe in extracted installer")
+    if len(matches) == 1:
+        return matches[0]
+
+    staging_name = "install"
+    primary = [path for path in matches if staging_name not in path.parts]
+    candidates = primary if primary else matches
+    sizes = {path.stat().st_size for path in candidates}
+    if len(sizes) != 1:
+        raise RuntimeError(
+            "expected identical oxideterm-native.exe copies in installer, "
+            f"found sizes {sorted(sizes)}"
+        )
+    return sorted(candidates, key=lambda path: (len(path.parts), str(path)))[0]
+
+
 def extract_windows_installer_binary(path: Path, destination: Path) -> Path:
     """Extract oxideterm-native.exe from an NSIS installer for architecture checks."""
     seven_zip = next(
@@ -415,11 +439,10 @@ def extract_windows_installer_binary(path: Path, destination: Path) -> Path:
         raise RuntimeError("7-Zip is required for NSIS content verification")
     run_checked([seven_zip, "x", "-y", f"-o{destination}", str(path)])
     matches = list(destination.rglob("oxideterm-native.exe"))
-    if len(matches) != 1:
-        raise RuntimeError(
-            f"expected one oxideterm-native.exe in {path.name}, found {len(matches)}"
-        )
-    return matches[0]
+    try:
+        return select_windows_installer_app_binary(matches)
+    except RuntimeError as error:
+        raise RuntimeError(f"{error} ({path.name})") from error
 
 
 def verify_release(dist: Path, target: str, version: str) -> dict[str, object]:
