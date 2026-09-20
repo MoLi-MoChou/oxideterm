@@ -811,5 +811,45 @@ class LinuxPackagingTests(unittest.TestCase):
             package_native.parse_dpkg_shlibdeps_output("shlibs:Recommends=libx11-6")
 
 
+
+class FastPackageProfileTests(unittest.TestCase):
+    def test_default_profile_is_release(self) -> None:
+        with patch.dict(package_native.os.environ, {}, clear=True):
+            self.assertEqual(package_native.cargo_profile(), "release")
+            self.assertEqual(package_native.cargo_build_profile_args(), ["--profile", "release"])
+            self.assertFalse(package_native.should_skip_portable())
+
+    def test_fast_package_env_selects_release_fast(self) -> None:
+        with patch.dict(
+            package_native.os.environ,
+            {"OXIDETERM_FAST_PACKAGE": "1"},
+            clear=True,
+        ):
+            self.assertEqual(package_native.cargo_profile(), "release-fast")
+            self.assertEqual(
+                package_native.cargo_build_profile_args(),
+                ["--profile", "release-fast"],
+            )
+
+    def test_skip_portable_env(self) -> None:
+        with patch.dict(
+            package_native.os.environ,
+            {"OXIDETERM_SKIP_PORTABLE": "true"},
+            clear=True,
+        ):
+            self.assertTrue(package_native.should_skip_portable())
+
+    def test_release_binary_uses_selected_profile_dir(self) -> None:
+        with patch.dict(
+            package_native.os.environ,
+            {"OXIDETERM_FAST_PACKAGE": "1"},
+            clear=True,
+        ):
+            path = package_native.release_binary(
+                "x86_64-pc-windows-msvc", True, "oxideterm-native"
+            )
+        self.assertTrue(str(path).endswith("release-fast/oxideterm-native.exe") or str(path).endswith("release-fast\\oxideterm-native.exe"))
+        self.assertIn("release-fast", path.parts)
+
 if __name__ == "__main__":
     unittest.main()

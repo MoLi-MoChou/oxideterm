@@ -35,6 +35,25 @@ class ArtifactNameTests(unittest.TestCase):
             },
         )
 
+    def test_windows_artifacts_can_skip_portable(self) -> None:
+        self.assertEqual(
+            verify_native_package.expected_artifact_names(
+                "x86_64-pc-windows-msvc",
+                "2.0.0",
+                include_portable=False,
+            ),
+            {"OxideTerm_2.0.0_windows_x64-setup.exe"},
+        )
+
+    def test_skip_portable_env_affects_expected_names(self) -> None:
+        with patch.dict(verify_native_package.os.environ, {"OXIDETERM_SKIP_PORTABLE": "1"}):
+            self.assertEqual(
+                verify_native_package.expected_artifact_names(
+                    "x86_64-pc-windows-msvc", "2.0.0"
+                ),
+                {"OxideTerm_2.0.0_windows_x64-setup.exe"},
+            )
+
     def test_linux_artifacts_include_all_distribution_shapes(self) -> None:
         names = verify_native_package.expected_artifact_names(
             "aarch64-unknown-linux-gnu", "2.0.0"

@@ -403,6 +403,15 @@ strip = true
 panic = "abort"
 opt-level = 3
 
+# CI package builds (OXIDETERM_FAST_PACKAGE=1) prefer link speed over size.
+# Local `cargo build --release` keeps the thin-LTO profile above unchanged.
+[profile.release-fast]
+inherits = "release"
+lto = false
+codegen-units = 16
+opt-level = 3
+strip = true
+
 [profile.dev]
 opt-level = 0
 debug = 1

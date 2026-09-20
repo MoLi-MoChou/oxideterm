@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import json
 import plistlib
 import re
@@ -55,15 +56,29 @@ def target_label(target: str) -> str:
     return labels[target]
 
 
-def expected_artifact_names(target: str, version: str) -> set[str]:
+def env_flag_enabled(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def should_skip_portable() -> bool:
+    """Match package_native.py: skip portable zip when CI sets the env flag."""
+    return env_flag_enabled("OXIDETERM_SKIP_PORTABLE")
+
+
+def expected_artifact_names(
+    target: str, version: str, *, include_portable: bool | None = None
+) -> set[str]:
     label = target_label(target)
-    names = {f"OxideTerm_{version}_{label}_portable"}
+    if include_portable is None:
+        include_portable = not should_skip_portable()
     if "windows" in target:
-        return {
-            f"OxideTerm_{version}_{label}-setup.exe",
-            f"OxideTerm_{version}_{label}_portable.zip",
-        }
-    names = {f"OxideTerm_{version}_{label}_portable.tar.gz"}
+        names = {f"OxideTerm_{version}_{label}-setup.exe"}
+        if include_portable:
+            names.add(f"OxideTerm_{version}_{label}_portable.zip")
+        return names
+    names: set[str] = set()
+    if include_portable:
+        names.add(f"OxideTerm_{version}_{label}_portable.tar.gz")
     if "apple-darwin" in target:
         names.update(
             {
@@ -390,9 +405,27 @@ def verify_windows_installer(path: Path, expected_version: str) -> None:
             raise RuntimeError(f"{path.name} does not contain version {expected_version}")
 
 
+def extract_windows_installer_binary(path: Path, destination: Path) -> Path:
+    """Extract oxideterm-native.exe from an NSIS installer for architecture checks."""
+    seven_zip = next(
+        (shutil.which(name) for name in ("7z", "7zz", "7za") if shutil.which(name)),
+        None,
+    )
+    if not seven_zip:
+        raise RuntimeError("7-Zip is required for NSIS content verification")
+    run_checked([seven_zip, "x", "-y", f"-o{destination}", str(path)])
+    matches = list(destination.rglob("oxideterm-native.exe"))
+    if len(matches) != 1:
+        raise RuntimeError(
+            f"expected one oxideterm-native.exe in {path.name}, found {len(matches)}"
+        )
+    return matches[0]
+
+
 def verify_release(dist: Path, target: str, version: str) -> dict[str, object]:
     version = normalized_version(version)
-    expected = expected_artifact_names(target, version)
+    include_portable = not should_skip_portable()
+    expected = expected_artifact_names(target, version, include_portable=include_portable)
     missing = sorted(name for name in expected if not (dist / name).is_file())
     if missing:
         raise RuntimeError(f"missing release artifacts: {', '.join(missing)}")
@@ -401,19 +434,25 @@ def verify_release(dist: Path, target: str, version: str) -> dict[str, object]:
         raise RuntimeError(f"empty release artifacts: {', '.join(empty)}")
 
     label = target_label(target)
-    portable_name = (
-        f"OxideTerm_{version}_{label}_portable.zip"
-        if "windows" in target
-        else f"OxideTerm_{version}_{label}_portable.tar.gz"
-    )
-    portable_path = dist / portable_name
-    verify_portable_archive(portable_path, target, version)
-    with tempfile.TemporaryDirectory() as directory:
-        binary = extract_portable_binary(portable_path, target, Path(directory))
-        verify_binary_architecture(binary, target)
-        if "linux" in target:
-            verify_linux_dynamic_libraries(binary)
-            verify_linux_glibc_compatibility(binary)
+    if include_portable:
+        portable_name = (
+            f"OxideTerm_{version}_{label}_portable.zip"
+            if "windows" in target
+            else f"OxideTerm_{version}_{label}_portable.tar.gz"
+        )
+        portable_path = dist / portable_name
+        verify_portable_archive(portable_path, target, version)
+        with tempfile.TemporaryDirectory() as directory:
+            binary = extract_portable_binary(portable_path, target, Path(directory))
+            verify_binary_architecture(binary, target)
+            if "linux" in target:
+                verify_linux_dynamic_libraries(binary)
+                verify_linux_glibc_compatibility(binary)
+    elif "windows" in target:
+        installer = dist / f"OxideTerm_{version}_{label}-setup.exe"
+        with tempfile.TemporaryDirectory() as directory:
+            binary = extract_windows_installer_binary(installer, Path(directory))
+            verify_binary_architecture(binary, target)
 
     if "windows" in target:
         verify_windows_installer(dist / f"OxideTerm_{version}_{label}-setup.exe", version)
