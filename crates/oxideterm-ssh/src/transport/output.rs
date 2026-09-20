@@ -277,10 +277,39 @@ mod tests {
     #[test]
     fn ssh_client_config_enables_legacy_algorithms_only_when_requested() {
         let preferences = oxideterm_connections::SshAlgorithmPreferences::default();
-        let modern = ssh_client_config(false, &preferences).unwrap();
-        let legacy = ssh_client_config(true, &preferences).unwrap();
+        let modern = ssh_client_config(false, &preferences, None).unwrap();
+        let legacy = ssh_client_config(true, &preferences, None).unwrap();
 
         assert!(!modern.preferred.kex.contains(&russh::kex::DH_G14_SHA1));
         assert!(legacy.preferred.kex.contains(&russh::kex::DH_G14_SHA1));
+    }
+
+    #[test]
+    fn ssh_client_config_applies_keepalive_interval_overrides() {
+        let preferences = oxideterm_connections::SshAlgorithmPreferences::default();
+        let defaulted = ssh_client_config(false, &preferences, None).unwrap();
+        assert_eq!(
+            defaulted.keepalive_interval,
+            Some(std::time::Duration::from_secs(
+                crate::SSH_CLIENT_KEEPALIVE_INTERVAL_SECS
+            ))
+        );
+        assert_eq!(defaulted.keepalive_max, crate::SSH_CLIENT_KEEPALIVE_MAX);
+
+        let ephemeral = ssh_client_config(
+            false,
+            &preferences,
+            Some(crate::EPHEMERAL_SSH_CLIENT_KEEPALIVE_INTERVAL_SECS),
+        )
+        .unwrap();
+        assert_eq!(
+            ephemeral.keepalive_interval,
+            Some(std::time::Duration::from_secs(
+                crate::EPHEMERAL_SSH_CLIENT_KEEPALIVE_INTERVAL_SECS
+            ))
+        );
+
+        let disabled = ssh_client_config(false, &preferences, Some(0)).unwrap();
+        assert_eq!(disabled.keepalive_interval, None);
     }
 }

@@ -32,7 +32,10 @@ pub use capability::{
     SshAlgorithmOffer, SshCapabilityLayer, SshCapabilityLimitation, SshCapabilityReport,
     SshCapabilityStatus, SshIntegrationCapabilities, ssh_capability_report,
 };
-pub use config::{AuthMethod, ProxyCommandConfig, ProxyHopConfig, SshConfig};
+pub use config::{
+    AuthMethod, EPHEMERAL_SSH_CLIENT_KEEPALIVE_INTERVAL_SECS, ProxyCommandConfig, ProxyHopConfig,
+    SSH_CLIENT_KEEPALIVE_INTERVAL_SECS, SSH_CLIENT_KEEPALIVE_MAX, SshConfig,
+};
 pub use connection_registry::{
     AcquiredSftpMeta, ConnectionConsumer, ConnectionInfo, ConnectionPoolConfig,
     ConnectionPoolStats, ConnectionState, ConnectionTransportStatus, DedicatedConnectionLease,

@@ -1,11 +1,17 @@
 fn ssh_client_config(
     legacy_ssh_compatibility: bool,
     ssh_algorithms: &oxideterm_connections::SshAlgorithmPreferences,
+    keepalive_interval_secs: Option<u64>,
 ) -> Result<client::Config, SshTransportError> {
+    let keepalive_interval = match keepalive_interval_secs {
+        Some(0) => None,
+        Some(secs) => Some(Duration::from_secs(secs)),
+        None => Some(Duration::from_secs(crate::SSH_CLIENT_KEEPALIVE_INTERVAL_SECS)),
+    };
     let mut config = client::Config {
         inactivity_timeout: None,
-        keepalive_interval: Some(Duration::from_secs(30)),
-        keepalive_max: 3,
+        keepalive_interval,
+        keepalive_max: crate::SSH_CLIENT_KEEPALIVE_MAX,
         window_size: 32 * 1024 * 1024,
         maximum_packet_size: 256 * 1024,
         ..client::Config::default()

@@ -78,6 +78,15 @@ fn algorithm_preferences_key_suffix(preferences: &SshAlgorithmPreferences) -> St
     format!(":algorithms={:x}", hasher.finalize())
 }
 
+/// Default russh client keepalive interval (ServerAliveInterval analogue).
+/// Applies when [`SshConfig::keepalive_interval_secs`] is `None`.
+pub const SSH_CLIENT_KEEPALIVE_INTERVAL_SECS: u64 = 30;
+/// Unanswered keepalive frames before russh drops the session (ServerAliveCountMax analogue).
+pub const SSH_CLIENT_KEEPALIVE_MAX: usize = 3;
+/// More aggressive interval for ephemeral / .xsh / CLI one-shot sessions that
+/// often traverse carrier-grade NAT with short idle timeouts.
+pub const EPHEMERAL_SSH_CLIENT_KEEPALIVE_INTERVAL_SECS: u64 = 15;
+
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SshConfig {
     pub host: String,
@@ -120,6 +129,11 @@ pub struct SshConfig {
     pub x11_forwarding: Option<X11ForwardPolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub post_connect_command: Option<String>,
+    /// Client SSH keepalive interval in seconds (`keepalive@openssh.com`).
+    /// `None` uses [`SSH_CLIENT_KEEPALIVE_INTERVAL_SECS`] (30).
+    /// `Some(0)` disables protocol keepalives. Does not open extra channels.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keepalive_interval_secs: Option<u64>,
 }
 
 impl fmt::Debug for SshConfig {
@@ -164,6 +178,7 @@ impl fmt::Debug for SshConfig {
                 .count(),
             )
             .field("x11_forwarding", &self.x11_forwarding)
+            .field("keepalive_interval_secs", &self.keepalive_interval_secs)
             .field(
                 "post_connect_command_configured",
                 &self.post_connect_command.is_some(),
@@ -604,6 +619,7 @@ impl Default for SshConfig {
             ssh_algorithms: SshAlgorithmPreferences::default(),
             x11_forwarding: None,
             post_connect_command: None,
+            keepalive_interval_secs: None,
         }
     }
 }
@@ -834,5 +850,12 @@ mod tests {
         assert!(config.connection_key().contains("|legacy_ssh=true"));
         let password = SshConfig::password("bastion.example", 22, "root", "");
         assert!(password.legacy_ssh_compatibility);
+    }
+
+    #[test]
+    fn ephemeral_keepalive_constant_is_stricter_than_default() {
+        assert!(EPHEMERAL_SSH_CLIENT_KEEPALIVE_INTERVAL_SECS < SSH_CLIENT_KEEPALIVE_INTERVAL_SECS);
+        assert!(EPHEMERAL_SSH_CLIENT_KEEPALIVE_INTERVAL_SECS > 0);
+        assert!(SSH_CLIENT_KEEPALIVE_MAX >= 1);
     }
 }

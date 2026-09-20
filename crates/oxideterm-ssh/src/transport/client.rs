@@ -820,6 +820,7 @@ impl SshTransportClient {
                     Arc::new(ssh_client_config(
                         self.config.legacy_ssh_compatibility,
                         &self.config.ssh_algorithms,
+                        self.config.keepalive_interval_secs,
                     )?),
                     stream,
                     handler,
@@ -980,6 +981,7 @@ impl SshTransportClient {
         let client_config = ssh_client_config(
             config.legacy_ssh_compatibility,
             &config.ssh_algorithms,
+            config.keepalive_interval_secs,
         )?;
         let handler = NativeClientHandler::new(
             config.host.clone(),
@@ -1158,6 +1160,7 @@ impl SshTransportClient {
                 Arc::new(ssh_client_config(
                     hop.legacy_ssh_compatibility,
                     &hop.ssh_algorithms,
+                    None,
                 )?),
                 stream,
                 handler,
@@ -1199,6 +1202,7 @@ impl SshTransportClient {
                 Arc::new(ssh_client_config(
                     hop.legacy_ssh_compatibility,
                     &hop.ssh_algorithms,
+                    None,
                 )?),
                 stream,
                 handler,
@@ -1270,6 +1274,7 @@ impl SshTransportClient {
                 Arc::new(ssh_client_config(
                     self.config.legacy_ssh_compatibility,
                     &self.config.ssh_algorithms,
+                    self.config.keepalive_interval_secs,
                 )?),
                 stream,
                 handler,
