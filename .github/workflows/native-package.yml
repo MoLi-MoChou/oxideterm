@@ -233,6 +233,21 @@ jobs:
             throw '7-Zip is missing from the GitHub-hosted Windows runner.'
           }
 
+          # aws-lc-sys on Windows needs NASM for assembly; without a warm target cache
+          # the crate rebuilds and panics if nasm.exe is missing.
+          $nasmVersion = '2.16.03'
+          $nasmArchive = "nasm-$nasmVersion-win64.zip"
+          $nasmUrl = "https://www.nasm.us/pub/nasm/releasebuilds/$nasmVersion/win64/$nasmArchive"
+          $nasmZip = Join-Path $env:RUNNER_TEMP $nasmArchive
+          $nasmRoot = Join-Path $env:RUNNER_TEMP "nasm-$nasmVersion"
+          curl.exe --fail --location --retry 3 --retry-all-errors --output $nasmZip $nasmUrl
+          Expand-Archive -Path $nasmZip -DestinationPath $nasmRoot -Force
+          $nasmBin = Get-ChildItem -Path $nasmRoot -Recurse -Filter nasm.exe | Select-Object -First 1
+          if ($null -eq $nasmBin) {
+            throw 'nasm.exe is missing from the NASM archive.'
+          }
+          $nasmBin.DirectoryName | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
       - name: Import Windows signing certificate
         if: runner.os == 'Windows'
         shell: pwsh
@@ -331,6 +346,8 @@ jobs:
           OXIDETERM_SKIP_PORTABLE: ${{ inputs.include_portable && '0' || '1' }}
           SCCACHE_GHA_ENABLED: 'true'
           RUSTC_WRAPPER: sccache
+          # Fallback if PATH NASM is missed: aws-lc-sys can fetch a prebuilt nasm.
+          AWS_LC_SYS_PREBUILT_NASM: '1'
         run: python scripts/release/package_native.py ${{ matrix.target }}
 
       - name: Show sccache stats
