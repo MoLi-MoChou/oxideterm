@@ -109,7 +109,7 @@ jobs:
           echo "release_tag=${release_tag}" >> "${GITHUB_OUTPUT}"
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
 
-  # ── Six-platform matrix (macOS / Linux / Windows, arm64 + x64) ─────────
+  # ── Windows-only (fork ships Windows x64 packages) ─────────────────────
   package:
     name: Package ${{ matrix.label }}
     needs: validate-release-request
@@ -121,28 +121,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - label: macos-arm64
-            os: macos-14
-            target: aarch64-apple-darwin
-          - label: macos-x64
-            # Use an Intel runner so Cargo build scripts run on the same host
-            # architecture as the x86_64 release target.
-            os: macos-15-intel
-            target: x86_64-apple-darwin
-          - label: linux-x64
-            os: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
-          - label: linux-arm64
-            # Keep the Linux release baseline at glibc 2.35 for distributions
-            # such as Kylin V11, matching the existing x64 package baseline.
-            os: ubuntu-22.04-arm
-            target: aarch64-unknown-linux-gnu
           - label: windows-x64
             os: windows-latest
             target: x86_64-pc-windows-msvc
-          - label: windows-arm64
-            os: windows-latest
-            target: aarch64-pc-windows-msvc
 
     steps:
       - name: Checkout repository
@@ -616,76 +597,6 @@ jobs:
               }
             }
 
-            if (isStable) {
-              await addAsset(
-                ['darwin-aarch64', 'darwin-aarch64-app', 'macos-aarch64', 'aarch64-apple-darwin'],
-                `OxideTerm_${version}_macos_arm64.app.tar.gz`,
-              );
-            } else {
-              await addAsset(
-                ['darwin-aarch64', 'darwin-aarch64-app', 'macos-aarch64', 'aarch64-apple-darwin'],
-                `OxideTerm_${version}_macos_arm64.app.zip`,
-              );
-            }
-            await addAsset(
-              ['darwin-aarch64-portable', 'macos-aarch64-portable', 'aarch64-apple-darwin-portable'],
-              `OxideTerm_${version}_macos_arm64_portable.tar.gz`,
-            );
-            if (isStable) {
-              await addAsset(
-                ['darwin-x86_64', 'darwin-x86_64-app', 'macos-x86_64', 'x86_64-apple-darwin'],
-                `OxideTerm_${version}_macos_x64.app.tar.gz`,
-              );
-            } else {
-              await addAsset(
-                ['darwin-x86_64', 'darwin-x86_64-app', 'macos-x86_64', 'x86_64-apple-darwin'],
-                `OxideTerm_${version}_macos_x64.app.zip`,
-              );
-            }
-            await addAsset(
-              ['darwin-x86_64-portable', 'macos-x86_64-portable', 'x86_64-apple-darwin-portable'],
-              `OxideTerm_${version}_macos_x64_portable.tar.gz`,
-            );
-            await addAsset(
-              ['linux-aarch64', 'linux-aarch64-appimage', 'aarch64-unknown-linux-gnu'],
-              `OxideTerm_${version}_linux_arm64.AppImage`,
-            );
-            await addAsset(
-              ['linux-x86_64', 'linux-x86_64-appimage', 'x86_64-unknown-linux-gnu'],
-              `OxideTerm_${version}_linux_x64.AppImage`,
-            );
-            await addAsset(
-              ['linux-aarch64-portable'],
-              `OxideTerm_${version}_linux_arm64_portable.tar.gz`,
-            );
-            await addAsset(
-              ['linux-x86_64-portable'],
-              `OxideTerm_${version}_linux_x64_portable.tar.gz`,
-            );
-            await addAsset(
-              ['linux-aarch64-deb'],
-              `OxideTerm_${version}_linux_arm64.deb`,
-            );
-            await addAsset(
-              ['linux-x86_64-deb'],
-              `OxideTerm_${version}_linux_x64.deb`,
-            );
-            await addAsset(
-              ['linux-aarch64-rpm'],
-              `OxideTerm_${version}_linux_arm64.rpm`,
-            );
-            await addAsset(
-              ['linux-x86_64-rpm'],
-              `OxideTerm_${version}_linux_x64.rpm`,
-            );
-            await addAsset(
-              ['windows-aarch64', 'windows-aarch64-nsis', 'aarch64-pc-windows-msvc', 'aarch64-pc-windows-msvc-nsis'],
-              `OxideTerm_${version}_windows_arm64-setup.exe`,
-            );
-            await addAsset(
-              ['windows-aarch64-portable'],
-              `OxideTerm_${version}_windows_arm64_portable.zip`,
-            );
             await addAsset(
               ['windows-x86_64', 'windows-x86_64-nsis', 'x86_64-pc-windows-msvc', 'x86_64-pc-windows-msvc-nsis'],
               `OxideTerm_${version}_windows_x64-setup.exe`,
@@ -696,18 +607,8 @@ jobs:
             );
 
             if (isStable) {
-              // OxideTerm 1.x follows the Latest release and probes these
-              // installer-specific Tauri keys before their generic fallbacks.
+              // OxideTerm 1.x probes installer-specific Tauri keys before generics.
               const tauriCompatibilitySuffixes = new Map([
-                ['darwin-aarch64-app', '.app.tar.gz'],
-                ['darwin-x86_64-app', '.app.tar.gz'],
-                ['linux-aarch64-appimage', '.AppImage'],
-                ['linux-x86_64-appimage', '.AppImage'],
-                ['linux-aarch64-deb', '.deb'],
-                ['linux-x86_64-deb', '.deb'],
-                ['linux-aarch64-rpm', '.rpm'],
-                ['linux-x86_64-rpm', '.rpm'],
-                ['windows-aarch64-nsis', '.exe'],
                 ['windows-x86_64-nsis', '.exe'],
               ]);
               for (const [platformKey, expectedSuffix] of tauriCompatibilitySuffixes) {
@@ -907,31 +808,9 @@ jobs:
             const expected = [
               'latest.json',
               'sha256sums.txt',
-              `OxideTerm_${version}_macos_arm64.app.zip`,
-              `OxideTerm_${version}_macos_arm64.dmg`,
-              `OxideTerm_${version}_macos_arm64_portable.tar.gz`,
-              `OxideTerm_${version}_macos_x64.app.zip`,
-              `OxideTerm_${version}_macos_x64.dmg`,
-              `OxideTerm_${version}_macos_x64_portable.tar.gz`,
-              `OxideTerm_${version}_linux_arm64.AppImage`,
-              `OxideTerm_${version}_linux_arm64.deb`,
-              `OxideTerm_${version}_linux_arm64.rpm`,
-              `OxideTerm_${version}_linux_arm64_portable.tar.gz`,
-              `OxideTerm_${version}_linux_x64.AppImage`,
-              `OxideTerm_${version}_linux_x64.deb`,
-              `OxideTerm_${version}_linux_x64.rpm`,
-              `OxideTerm_${version}_linux_x64_portable.tar.gz`,
-              `OxideTerm_${version}_windows_arm64-setup.exe`,
-              `OxideTerm_${version}_windows_arm64_portable.zip`,
               `OxideTerm_${version}_windows_x64-setup.exe`,
               `OxideTerm_${version}_windows_x64_portable.zip`,
             ];
-            if (!isGpuiPreview && !version.includes('-')) {
-              expected.push(
-                `OxideTerm_${version}_macos_arm64.app.tar.gz`,
-                `OxideTerm_${version}_macos_x64.app.tar.gz`,
-              );
-            }
 
             const missing = expected.filter((name) => !names.has(name));
             if (missing.length > 0) {
