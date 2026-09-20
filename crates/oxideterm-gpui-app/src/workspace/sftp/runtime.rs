@@ -888,6 +888,12 @@ impl WorkspaceApp {
         });
     }
 
+    /// Opens an SFTP surface on the node-owned SSH transport.
+    ///
+    /// Note: bastion / .xsh loopback tunnels often set `MaxSessions=1`. Opening
+    /// SFTP while an interactive shell already owns the only channel can end
+    /// that shell; ephemeral opens skip automatic shell-integration SFTP for
+    /// the same reason (Netcatty #16).
     pub(in crate::workspace) fn open_sftp_tab(
         &mut self,
         node_id: NodeId,

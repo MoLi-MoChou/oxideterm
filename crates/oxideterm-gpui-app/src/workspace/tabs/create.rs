@@ -42,6 +42,43 @@ fn attach_saved_owner_to_reused_ssh_node(
     true
 }
 
+fn is_loopback_ssh_host(host: &str) -> bool {
+    let host = host.trim().trim_matches(|c| c == '[' || c == ']');
+    host.eq_ignore_ascii_case("localhost")
+        || host == "127.0.0.1"
+        || host == "::1"
+        || host.eq_ignore_ascii_case("localhost.")
+}
+
+/// Bastion one-shots (.xsh / ephemeral / loopback forwards) often enforce
+/// `MaxSessions=1`. Remote shell-integration SFTP and similar post-connect
+/// probes open a second channel and can exit the interactive shell with code 0.
+pub(in crate::workspace) fn should_skip_auxiliary_ssh_channels(
+    saved_connection_id: Option<&str>,
+    host: &str,
+) -> bool {
+    saved_connection_id.is_none() || is_loopback_ssh_host(host)
+}
+
+fn ssh_config_from_temporary_launch(
+    host: String,
+    port: u16,
+    username: String,
+    auth: AuthMethod,
+) -> SshConfig {
+    SshConfig {
+        host,
+        port,
+        username,
+        auth,
+        strict_host_key_checking: true,
+        // Prefer explicit true over Default alone so .xsh / CLI launches keep
+        // legacy DH KEX even if Default is later tightened.
+        legacy_ssh_compatibility: true,
+        ..SshConfig::default()
+    }
+}
+
 fn should_use_dedicated_terminal_connection(
     allow_dedicated_connection: bool,
     saved_policy: Option<bool>,
@@ -1125,14 +1162,8 @@ impl WorkspaceApp {
             (None, Some(password)) => AuthMethod::password_secret(password),
             (None, None) => AuthMethod::Agent,
         };
-        let config = SshConfig {
-            host: launch.host,
-            port: launch.port,
-            username: launch.username,
-            auth,
-            strict_host_key_checking: true,
-            ..SshConfig::default()
-        };
+        let config =
+            ssh_config_from_temporary_launch(launch.host, launch.port, launch.username, auth);
         // CLI launches must ask for host-key trust before starting the node-owned
         // transport, just like an unsaved connection opened from the UI.
         self.start_ssh_preflight(config, title, SshConnectionIntent::ConnectTemporary, cx);
@@ -1875,6 +1906,48 @@ mod create_tests {
             "created_at": "2026-01-01T00:00:00Z"
         }))
         .expect("valid saved connection fixture")
+    }
+
+    #[test]
+    fn temporary_ssh_launch_enables_legacy_kex_by_default() {
+        let config = ssh_config_from_temporary_launch(
+            "127.0.0.1".to_string(),
+            2222,
+            "root".to_string(),
+            AuthMethod::password(""),
+        );
+        assert!(config.legacy_ssh_compatibility);
+        assert_eq!(config.host, "127.0.0.1");
+        assert_eq!(config.port, 2222);
+        match config.auth {
+            AuthMethod::Password { password, prompt } => {
+                assert!(password.is_empty());
+                assert!(!prompt);
+            }
+            other => panic!("expected empty password auth, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn auxiliary_ssh_channels_are_skipped_for_ephemeral_and_loopback() {
+        assert!(should_skip_auxiliary_ssh_channels(
+            None,
+            "bastion.example.com"
+        ));
+        assert!(should_skip_auxiliary_ssh_channels(
+            Some("saved"),
+            "127.0.0.1"
+        ));
+        assert!(should_skip_auxiliary_ssh_channels(Some("saved"), "::1"));
+        assert!(should_skip_auxiliary_ssh_channels(
+            Some("saved"),
+            "localhost"
+        ));
+        assert!(should_skip_auxiliary_ssh_channels(Some("saved"), "[::1]"));
+        assert!(!should_skip_auxiliary_ssh_channels(
+            Some("saved"),
+            "prod.example.com"
+        ));
     }
 
     #[test]
