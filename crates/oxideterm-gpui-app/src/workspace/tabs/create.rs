@@ -75,6 +75,12 @@ fn ssh_config_from_temporary_launch(
         // Prefer explicit true over Default alone so .xsh / CLI launches keep
         // legacy DH KEX even if Default is later tightened.
         legacy_ssh_compatibility: true,
+        // Aggressive client keepalive for ephemeral/.xsh NAT paths. Uses the
+        // russh keepalive@openssh.com frame only — no extra SSH channels
+        // (safe for MaxSessions=1 bastions that already skip auxiliary SFTP).
+        keepalive_interval_secs: Some(
+            oxideterm_ssh::EPHEMERAL_SSH_CLIENT_KEEPALIVE_INTERVAL_SECS,
+        ),
         ..SshConfig::default()
     }
 }
@@ -1917,6 +1923,10 @@ mod create_tests {
             AuthMethod::password(""),
         );
         assert!(config.legacy_ssh_compatibility);
+        assert_eq!(
+            config.keepalive_interval_secs,
+            Some(oxideterm_ssh::EPHEMERAL_SSH_CLIENT_KEEPALIVE_INTERVAL_SECS)
+        );
         assert_eq!(config.host, "127.0.0.1");
         assert_eq!(config.port, 2222);
         match config.auth {

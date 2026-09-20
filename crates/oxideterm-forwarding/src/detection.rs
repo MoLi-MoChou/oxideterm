@@ -14,6 +14,24 @@ pub const REMOTE_OS_PROBE_UNIX: &str = "echo '===DETECT==='; uname -s; echo '===
 
 pub const REMOTE_OS_PROBE_WINDOWS: &str = "powershell -NoProfile -Command \"Write-Output '===DETECT==='; Write-Output ('PLATFORM=' + [System.Environment]::OSVersion.Platform); Write-Output ('OS=' + [System.Environment]::OSVersion.VersionString); Write-Output '===END==='\"";
 
+/// Compact kubectl NodePort listing used inside the remote scan shell.
+/// Prefer go-template over full JSON so output stays within PORT_SCAN_MAX_OUTPUT_SIZE.
+/// Missing kubectl, RBAC denial, or timeout all no-op (`|| true`).
+macro_rules! kube_nodeport_scan_fragment {
+    () => {
+        concat!(
+            "echo '===KUBE==='; ",
+            "((command -v kubectl >/dev/null 2>&1 && ",
+            "(timeout 3 kubectl get svc -A -o go-template=",
+            "'{{range .items}}{{if eq .spec.type \"NodePort\"}}{{.metadata.namespace}}{{\"\\t\"}}{{.metadata.name}}{{\"\\t\"}}{{range .spec.ports}}{{.nodePort}}{{\",\"}}{{end}}{{\"\\n\"}}{{end}}{{end}}' ",
+            "2>/dev/null || kubectl get svc -A -o go-template=",
+            "'{{range .items}}{{if eq .spec.type \"NodePort\"}}{{.metadata.namespace}}{{\"\\t\"}}{{.metadata.name}}{{\"\\t\"}}{{range .spec.ports}}{{.nodePort}}{{\",\"}}{{end}}{{\"\\n\"}}{{end}}{{end}}' ",
+            "2>/dev/null)) || true); ",
+            "echo '===KUBE_END==='; "
+        )
+    };
+}
+
 pub const PORT_SCAN_COMMAND_LINUX: &str = concat!(
     "echo '===PORTS==='; ",
     "((ss -tlnp 2>/dev/null || netstat -tlnp 2>/dev/null) | grep -i listen || true); ",
@@ -21,6 +39,7 @@ pub const PORT_SCAN_COMMAND_LINUX: &str = concat!(
     "echo '===DOCKER==='; ",
     "((docker ps --format '{{.ID}}\t{{.Names}}\t{{.Ports}}' 2>/dev/null || sudo -n docker ps --format '{{.ID}}\t{{.Names}}\t{{.Ports}}' 2>/dev/null) || true); ",
     "echo '===DOCKER_END==='; ",
+    kube_nodeport_scan_fragment!(),
     "echo '===END==='"
 );
 
@@ -31,6 +50,7 @@ pub const PORT_SCAN_COMMAND_MACOS: &str = concat!(
     "echo '===DOCKER==='; ",
     "((docker ps --format '{{.ID}}\t{{.Names}}\t{{.Ports}}' 2>/dev/null || sudo -n docker ps --format '{{.ID}}\t{{.Names}}\t{{.Ports}}' 2>/dev/null) || true); ",
     "echo '===DOCKER_END==='; ",
+    kube_nodeport_scan_fragment!(),
     "echo '===END==='"
 );
 
@@ -207,6 +227,9 @@ pub fn parse_listening_ports(output: &str, platform: RemotePortScanPlatform) -> 
     };
     let mut seen: HashSet<u16> = ports.iter().map(|port| port.port).collect();
     push_unique_ports(&mut ports, &mut seen, parse_ports_docker(output));
+    // NodePorts often only exist in kube-proxy iptables DNAT and never appear in
+    // ss -tlnp. Merge kubectl results with label preference for k8s:ns/svc.
+    merge_kube_nodeports(&mut ports, &mut seen, parse_ports_kube_nodeport(output));
     ports
 }
 
@@ -405,6 +428,95 @@ fn parse_ports_docker(output: &str) -> Vec<DetectedPort> {
     ports
 }
 
+fn merge_kube_nodeports(
+    ports: &mut Vec<DetectedPort>,
+    seen: &mut HashSet<u16>,
+    kube_ports: Vec<DetectedPort>,
+) {
+    for kube in kube_ports {
+        if let Some(existing) = ports.iter_mut().find(|port| port.port == kube.port) {
+            if should_prefer_kube_process_label(existing.process_name.as_deref()) {
+                existing.process_name = kube.process_name;
+            }
+            continue;
+        }
+        if seen.insert(kube.port) {
+            ports.push(kube);
+        }
+    }
+}
+
+fn should_prefer_kube_process_label(process_name: Option<&str>) -> bool {
+    match process_name {
+        None => true,
+        Some(name) => {
+            let trimmed = name.trim();
+            trimmed.is_empty() || trimmed == "kube-proxy" || trimmed.starts_with("kube-proxy")
+        }
+    }
+}
+
+/// Parse compact kubectl NodePort lines:
+/// `namespace\tservice\t30080,30443,`
+pub fn parse_ports_kube_nodeport(output: &str) -> Vec<DetectedPort> {
+    let section = match extract_section(output, "KUBE") {
+        Some(section) => section,
+        None => return Vec::new(),
+    };
+
+    let mut ports = Vec::new();
+    let mut seen = HashSet::new();
+
+    for line in section
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+    {
+        // Ignore kubectl error banners that may leak into the section.
+        if line.starts_with("error:")
+            || line.starts_with("Error")
+            || line.starts_with("Unable")
+            || line.starts_with("The connection")
+        {
+            continue;
+        }
+        let parts: Vec<&str> = line.splitn(3, '\t').collect();
+        if parts.len() < 3 {
+            continue;
+        }
+        let namespace = parts[0].trim();
+        let service = parts[1].trim();
+        if namespace.is_empty() || service.is_empty() {
+            continue;
+        }
+        let label = format!("k8s:{namespace}/{service}");
+        for port_token in parts[2].split(',') {
+            let token = port_token.trim();
+            if token.is_empty() {
+                continue;
+            }
+            let Ok(port) = token.parse::<u16>() else {
+                continue;
+            };
+            if port == 0 {
+                continue;
+            }
+            if seen.insert(port) {
+                ports.push(DetectedPort {
+                    port,
+                    // NodePort listens on the node primary interfaces; 0.0.0.0 is
+                    // the practical bind address for local -L forwarding.
+                    bind_addr: "0.0.0.0".to_string(),
+                    process_name: Some(label.clone()),
+                    pid: None,
+                });
+            }
+        }
+    }
+
+    ports
+}
+
 fn parse_addr_port(value: &str) -> Option<DetectedPort> {
     if let Some(bracket_end) = value.rfind("]:") {
         let port = value[bracket_end + 2..].parse().ok()?;
@@ -476,6 +588,70 @@ abc\tweb\t0.0.0.0:3000->3000/tcp, :::3000->3000/tcp
             && port.pid == Some(55)));
         assert!(ports.iter().any(|port| port.port == 3000
             && port.process_name.as_deref() == Some("docker:web")));
+    }
+
+    #[test]
+    fn parses_kube_nodeports_and_dedupes_against_ss() {
+        let output = "\
+===PORTS===
+LISTEN 0 128 0.0.0.0:30080 0.0.0.0:* users:((\"kube-proxy\",pid=9,fd=3))
+===PORTS_END===
+===DOCKER===
+===DOCKER_END===
+===KUBE===
+default\tingress-nginx\t30080,30443,
+kube-system\tmetrics-server\t30000,
+===KUBE_END===
+===END===";
+
+        let ports = parse_listening_ports(output, RemotePortScanPlatform::Linux);
+
+        assert_eq!(ports.len(), 3);
+        let http = ports.iter().find(|port| port.port == 30080).expect("30080");
+        assert_eq!(
+            http.process_name.as_deref(),
+            Some("k8s:default/ingress-nginx")
+        );
+        assert_eq!(http.pid, Some(9));
+        assert!(ports.iter().any(|port| port.port == 30443
+            && port.process_name.as_deref() == Some("k8s:default/ingress-nginx")
+            && port.bind_addr == "0.0.0.0"));
+        assert!(ports.iter().any(|port| port.port == 30000
+            && port.process_name.as_deref() == Some("k8s:kube-system/metrics-server")));
+    }
+
+    #[test]
+    fn kube_nodeport_section_missing_or_errors_is_noop() {
+        let missing = "\
+===PORTS===
+LISTEN 0 128 0.0.0.0:8080 0.0.0.0:* users:((\"node\",pid=1,fd=3))
+===PORTS_END===
+===END===";
+        let ports = parse_listening_ports(missing, RemotePortScanPlatform::Linux);
+        assert_eq!(ports.len(), 1);
+        assert_eq!(ports[0].port, 8080);
+
+        let errored = "\
+===PORTS===
+===PORTS_END===
+===KUBE===
+error: You must be logged in to the server (Unauthorized)
+===KUBE_END===
+===END===";
+        assert!(parse_ports_kube_nodeport(errored).is_empty());
+    }
+
+    #[test]
+    fn linux_scan_command_includes_kubectl_nodeport_probe() {
+        assert!(PORT_SCAN_COMMAND_LINUX.contains("===KUBE==="));
+        assert!(PORT_SCAN_COMMAND_LINUX.contains("kubectl get svc"));
+        assert!(PORT_SCAN_COMMAND_LINUX.contains("NodePort"));
+        assert!(PORT_SCAN_COMMAND_MACOS.contains("===KUBE==="));
+        assert_eq!(
+            kube_nodeport_scan_fragment!(),
+            kube_nodeport_scan_fragment!(),
+            "fragment macro must be deterministic"
+        );
     }
 
     #[test]
