@@ -17,6 +17,8 @@ pub(in crate::workspace) use entity::{
     WorkspaceTabHostEntity, WorkspaceTabHostEvent,
 };
 
+pub(in crate::workspace) use create::should_skip_auxiliary_ssh_channels;
+
 // The main tab strip keeps a thin visual thumb while exposing a larger drag target.
 const TABBAR_SCROLLBAR_HEIGHT: f32 = 3.0;
 const TABBAR_SCROLLBAR_DRAG_HEIGHT: f32 = 10.0;

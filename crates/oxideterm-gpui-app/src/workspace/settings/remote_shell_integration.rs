@@ -461,6 +461,17 @@ impl WorkspaceApp {
         force_install: bool,
         cx: &mut Context<Self>,
     ) {
+        // Mirror Netcatty #16: ephemeral/.xsh and loopback bastion tunnels often
+        // set MaxSessions=1. Shell-integration SFTP is a second channel and can
+        // cleanly kill the interactive shell (exit 0) right after the prompt.
+        if let Some(node) = self.ssh_nodes.get(&node_id)
+            && crate::workspace::tabs::should_skip_auxiliary_ssh_channels(
+                node.saved_connection_id.as_deref(),
+                &node.endpoint.host,
+            )
+        {
+            return;
+        }
         let started = self.workspace_runtime.update(cx, |runtime, _cx| {
             runtime.start_remote_shell_integration_gate(node_id, force_install)
         });

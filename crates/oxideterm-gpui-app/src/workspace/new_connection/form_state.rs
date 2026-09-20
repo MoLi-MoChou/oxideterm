@@ -445,7 +445,7 @@ impl NewConnectionProxyHop {
             agent_forwarding: false,
             identity_agent: String::new(),
             agent_forwarding_socket: None,
-            legacy_ssh_compatibility: false,
+            legacy_ssh_compatibility: true,
             ssh_algorithms: oxideterm_connections::SshAlgorithmPreferences::default(),
         }
     }
@@ -664,7 +664,7 @@ impl Default for StandaloneSftpSecondaryForm {
             save_password: false,
             identity_agent: String::new(),
             agent_available: None,
-            legacy_ssh_compatibility: false,
+            legacy_ssh_compatibility: true,
             ssh_algorithms: oxideterm_connections::SshAlgorithmPreferences::default(),
             connect_timeout_seconds: DEFAULT_SSH_CONNECT_TIMEOUT_SECONDS,
             connect_timeout_seconds_text: DEFAULT_SSH_CONNECT_TIMEOUT_SECONDS.to_string(),
@@ -1159,7 +1159,7 @@ impl Default for NewConnectionForm {
             agent_forwarding: false,
             identity_agent: String::new(),
             agent_forwarding_socket: None,
-            legacy_ssh_compatibility: false,
+            legacy_ssh_compatibility: true,
             ssh_algorithms: oxideterm_connections::SshAlgorithmPreferences::default(),
             ssh_algorithm_editor_open: false,
             ssh_algorithm_selected: None,
@@ -2471,10 +2471,11 @@ mod tests {
         NewConnectionField, NewConnectionForm, NewConnectionProxyHop, NewConnectionTransport,
         RemoteDesktopSessionOptions, RemoteDesktopVncCompression, RemoteDesktopVncImageQuality,
         RemoteDesktopVncOptions, RemoteDesktopVncSecurityPolicy, RemoteDesktopVncSessionMode,
-        SshAuthFamily, SshAuthTab, SshKeyAuthSource, StandaloneSftpTransferMode,
-        auth_family_from_tab, backspace_current_connection_field, connection_secret_field_visible,
-        form_from_mosh_profile, form_from_remote_desktop_profile, form_from_serial_profile,
-        form_from_telnet_profile, insert_text_into_current_connection_field, key_source_from_tab,
+        SshAuthFamily, SshAuthTab, SshKeyAuthSource, StandaloneSftpSecondaryForm,
+        StandaloneSftpTransferMode, auth_family_from_tab, backspace_current_connection_field,
+        connection_secret_field_visible, form_from_mosh_profile, form_from_remote_desktop_profile,
+        form_from_serial_profile, form_from_telnet_profile,
+        insert_text_into_current_connection_field, key_source_from_tab,
         select_current_connection_field, text_from_keystroke,
         toggle_connection_secret_field_visibility,
     };
@@ -2999,5 +3000,12 @@ mod tests {
         assert!(hop.passphrase.is_empty());
         assert!(hop.agent_forwarding);
         assert!(hop.legacy_ssh_compatibility);
+    }
+
+    #[test]
+    fn blank_connection_forms_enable_legacy_ssh_compatibility_by_default() {
+        assert!(NewConnectionForm::default().legacy_ssh_compatibility);
+        assert!(NewConnectionProxyHop::new().legacy_ssh_compatibility);
+        assert!(StandaloneSftpSecondaryForm::default().legacy_ssh_compatibility);
     }
 }

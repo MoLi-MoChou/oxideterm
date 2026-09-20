@@ -598,7 +598,8 @@ impl Default for SshConfig {
             agent_forwarding: false,
             identity_agent: None,
             agent_forwarding_socket: None,
-            legacy_ssh_compatibility: false,
+            // Fork default: offer legacy DH/SHA1 KEX for older bastions (.xsh / MaxSessions tunnels).
+            legacy_ssh_compatibility: true,
             ssh_channel_strategy: SshChannelStrategy::default(),
             ssh_algorithms: SshAlgorithmPreferences::default(),
             x11_forwarding: None,
@@ -824,5 +825,14 @@ mod tests {
         }]);
 
         assert!(config.has_runtime_auth_secret());
+    }
+
+    #[test]
+    fn default_enables_legacy_ssh_compatibility_for_fork_bastion_defaults() {
+        let config = SshConfig::default();
+        assert!(config.legacy_ssh_compatibility);
+        assert!(config.connection_key().contains("|legacy_ssh=true"));
+        let password = SshConfig::password("bastion.example", 22, "root", "");
+        assert!(password.legacy_ssh_compatibility);
     }
 }
