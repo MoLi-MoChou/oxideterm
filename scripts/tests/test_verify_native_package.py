@@ -252,5 +252,35 @@ class LinuxCompatibilityTests(unittest.TestCase):
                 Path("oxideterm-native")
             )
 
+
+class WindowsInstallerBinarySelectionTests(unittest.TestCase):
+    def test_prefers_non_staging_oxideterm_native(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            primary = root / "oxideterm-native.exe"
+            staged = root / "install" / "oxideterm-native.exe"
+            staged.parent.mkdir(parents=True)
+            primary.write_bytes(b"abc")
+            staged.write_bytes(b"abc")
+            chosen = verify_native_package.select_windows_installer_app_binary(
+                [primary, staged]
+            )
+            self.assertEqual(chosen, primary)
+
+    def test_rejects_mismatched_duplicate_binaries(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            first = root / "oxideterm-native.exe"
+            second = root / "other" / "oxideterm-native.exe"
+            second.parent.mkdir(parents=True)
+            first.write_bytes(b"abc")
+            second.write_bytes(b"abcd")
+            with self.assertRaises(RuntimeError):
+                verify_native_package.select_windows_installer_app_binary(
+                    [first, second]
+                )
+
+
+
 if __name__ == "__main__":
     unittest.main()
