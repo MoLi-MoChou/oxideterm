@@ -101,6 +101,8 @@ struct InstanceRequest {
     connection_launch_file: Option<PathBuf>,
     #[serde(default)]
     connection_launch: Option<NativeConnectionLaunch>,
+    #[serde(default)]
+    session_file_launch: bool,
 }
 
 #[derive(Serialize)]
@@ -108,6 +110,7 @@ struct InstanceRequestWire<'a> {
     token: &'a str,
     connection_launch_file: Option<&'a Path>,
     connection_launch: Option<&'a NativeConnectionLaunch>,
+    session_file_launch: bool,
 }
 
 #[derive(Deserialize, Eq, PartialEq)]
@@ -172,6 +175,7 @@ pub(crate) fn single_instance_runtime_paths_for_data_dir(data_dir: &Path) -> [Pa
 pub(crate) fn acquire_or_forward(
     connection_launch_path: Option<PathBuf>,
     connection_launch: Option<NativeConnectionLaunch>,
+    session_file_launch: bool,
 ) -> Result<SingleInstanceOutcome> {
     let settings_path = oxideterm_settings::default_settings_path();
     let data_dir = settings_path
@@ -182,6 +186,7 @@ pub(crate) fn acquire_or_forward(
         InstancePaths::for_data_dir(data_dir, current_instance_scope()),
         connection_launch_path,
         connection_launch,
+        session_file_launch,
     )
 }
 
@@ -189,6 +194,7 @@ fn acquire_or_forward_with_paths(
     paths: InstancePaths,
     connection_launch_path: Option<PathBuf>,
     connection_launch: Option<NativeConnectionLaunch>,
+    session_file_launch: bool,
 ) -> Result<SingleInstanceOutcome> {
     let data_dir = paths
         .lock_path
@@ -218,7 +224,12 @@ fn acquire_or_forward_with_paths(
         Ok(()) => start_primary(lock_file, paths, connection_launch),
         // Windows reports ERROR_LOCK_VIOLATION, which is not mapped to WouldBlock.
         Err(error) if error.raw_os_error() == fs2::lock_contended_error().raw_os_error() => {
-            forward_to_primary(&paths.state_path, connection_launch_path, connection_launch)
+            forward_to_primary(
+                &paths.state_path,
+                connection_launch_path,
+                connection_launch,
+                session_file_launch,
+            )
                 .with_context(|| {
                     format!(
                         "failed to forward launch request through {}",
@@ -291,6 +302,7 @@ fn forward_to_primary(
     state_path: &Path,
     connection_launch_path: Option<PathBuf>,
     connection_launch: Option<NativeConnectionLaunch>,
+    session_file_launch: bool,
 ) -> Result<()> {
     let mut last_error = None;
     for _ in 0..FORWARD_RETRY_COUNT {
@@ -299,6 +311,7 @@ fn forward_to_primary(
                 &state,
                 connection_launch_path.as_deref(),
                 connection_launch.as_ref(),
+                session_file_launch,
             )
         }) {
             Ok(()) => return Ok(()),
@@ -327,6 +340,7 @@ fn send_instance_request(
     state: &InstanceState,
     connection_launch_path: Option<&Path>,
     connection_launch: Option<&NativeConnectionLaunch>,
+    session_file_launch: bool,
 ) -> Result<()> {
     let mut stream = TcpStream::connect(("127.0.0.1", state.port))
         .context("failed to connect to existing OxideTerm instance")?;
@@ -334,6 +348,7 @@ fn send_instance_request(
         token: state.token.expose_secret(),
         connection_launch_file: connection_launch_path,
         connection_launch,
+        session_file_launch,
     };
     let bytes =
         Zeroizing::new(serde_json::to_vec(&request).context("failed to encode launch request")?);
@@ -394,9 +409,14 @@ fn events_from_stream(
         }
     }
     if let Some(launch) = request.connection_launch {
-        // Direct in-memory launches originate from operating-system URI
-        // callbacks, while explicit CLI requests use the owner-only file path.
-        events.push(SingleInstanceEvent::OpenExternalConnectionUri(launch));
+        // Explicit Xshell session-file opens behave like CLI handoffs and must
+        // not be blocked by the external URI preference. OS URI callbacks stay
+        // on the gated external path.
+        if request.session_file_launch {
+            events.push(SingleInstanceEvent::OpenNativeConnection(launch));
+        } else {
+            events.push(SingleInstanceEvent::OpenExternalConnectionUri(launch));
+        }
     }
     if events.is_empty() {
         events.push(SingleInstanceEvent::ShowMainWindow);
@@ -434,11 +454,11 @@ mod tests {
             _guard: guard,
             receiver,
             ..
-        } = acquire_or_forward_with_paths(paths.clone(), None, None).unwrap()
+        } = acquire_or_forward_with_paths(paths.clone(), None, None, false).unwrap()
         else {
             panic!("first launch should become the primary instance");
         };
-        let forwarded = acquire_or_forward_with_paths(paths, None, None).unwrap();
+        let forwarded = acquire_or_forward_with_paths(paths, None, None, false).unwrap();
         assert!(matches!(forwarded, SingleInstanceOutcome::Forwarded));
 
         assert!(matches!(
@@ -465,7 +485,7 @@ mod tests {
             _guard: guard,
             receiver,
             ..
-        } = acquire_or_forward_with_paths(paths.clone(), None, None).unwrap()
+        } = acquire_or_forward_with_paths(paths.clone(), None, None, false).unwrap()
         else {
             panic!("first launch should become the primary instance");
         };
@@ -475,7 +495,7 @@ mod tests {
         )
         .unwrap();
         assert!(matches!(
-            acquire_or_forward_with_paths(paths, None, Some(launch)).unwrap(),
+            acquire_or_forward_with_paths(paths, None, Some(launch), false).unwrap(),
             SingleInstanceOutcome::Forwarded
         ));
 
@@ -506,9 +526,9 @@ mod tests {
             // Synthetic credentials exercise the secret-bearing CLI handoff without a network.
             fs::write(&request_path, br#"{"kind":"ssh","username":"cli-user","host":"example.test","port":2222,"password":"handoff-test"}"#).unwrap();
             let primary = if already_running {
-                acquire_or_forward_with_paths(paths.clone(), None, None).unwrap()
+                acquire_or_forward_with_paths(paths.clone(), None, None, false).unwrap()
             } else {
-                acquire_or_forward_with_paths(paths.clone(), Some(request_path.clone()), None)
+                acquire_or_forward_with_paths(paths.clone(), Some(request_path.clone()), None, false)
                     .unwrap()
             };
             let SingleInstanceOutcome::Primary {
@@ -521,7 +541,7 @@ mod tests {
             };
             let launch = if already_running {
                 assert!(matches!(
-                    acquire_or_forward_with_paths(paths, Some(request_path.clone()), None).unwrap(),
+                    acquire_or_forward_with_paths(paths, Some(request_path.clone()), None, false).unwrap(),
                     SingleInstanceOutcome::Forwarded
                 ));
                 let receiver = receiver.lock().unwrap();
@@ -601,6 +621,7 @@ mod tests {
             host: "example.test".to_string(),
             port: 22,
             password: None,
+            key_path: None,
         });
 
         drop(first_workspace_receiver);

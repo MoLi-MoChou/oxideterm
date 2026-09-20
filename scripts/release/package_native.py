@@ -44,6 +44,8 @@ STABLE_APP_IDENTIFIER = "com.oxideterm.app"
 APP_BIN = "oxideterm-native"
 CLI_BIN = "oxideterm"
 CONNECTION_URI_SCHEMES = ("ssh", "telnet", "mosh", "rdp", "vnc")
+# Xshell session files opened via Explorer / double-click.
+XSHELL_SESSION_EXTENSIONS = ("xsh", "xts")
 HELPER_BINS = ("oxideterm-rdp-helper", "oxideterm-vnc-helper")
 UPDATE_HELPER_PACKAGE = "oxideterm-update"
 UPDATE_HELPER_BIN = "oxideterm-update-helper"
@@ -648,6 +650,14 @@ def build_macos_info_plist(version: str, identity: ReleaseIdentity) -> dict:
                 "CFBundleURLSchemes": list(CONNECTION_URI_SCHEMES),
             }
         ],
+        "CFBundleDocumentTypes": [
+            {
+                "CFBundleTypeName": "Xshell Session",
+                "CFBundleTypeRole": "Viewer",
+                "LSHandlerRank": "Alternate",
+                "CFBundleTypeExtensions": list(XSHELL_SESSION_EXTENSIONS),
+            }
+        ],
     }
     return merge_macos_info_plist_extensions(plist)
 
@@ -1079,7 +1089,7 @@ def windows_protocol_registration_script(
     identity: ReleaseIdentity, binary_name: str
 ) -> str:
     # Capabilities make OxideTerm an available handler without replacing the
-    # user's current default for any registered scheme.
+    # user's current default for any registered scheme or session extension.
     capabilities_key = f"Software\\{identity.windows_registry_key}\\Capabilities"
     lines = [
         f'  WriteRegStr HKCU "{capabilities_key}" "ApplicationName" "{identity.app_name}"',
@@ -1099,6 +1109,19 @@ def windows_protocol_registration_script(
                 f'  WriteRegStr HKCU "{capabilities_key}\\URLAssociations" "{scheme}" "{prog_id}"',
             ]
         )
+    for extension in XSHELL_SESSION_EXTENSIONS:
+        prog_id = f"{identity.app_identifier}.{extension}"
+        class_key = f"Software\\Classes\\{prog_id}"
+        ext_key = f"Software\\Classes\\.{extension}"
+        lines.extend(
+            [
+                f'  WriteRegStr HKCU "{ext_key}" "" "{prog_id}"',
+                f'  WriteRegStr HKCU "{class_key}" "" "{identity.app_name} Xshell Session"',
+                f'  WriteRegStr HKCU "{class_key}\\DefaultIcon" "" "$INSTDIR\\{binary_name},0"',
+                rf'  WriteRegStr HKCU "{class_key}\shell\open\command" "" "$\"$INSTDIR\{binary_name}$\" $\"%1$\""',
+                f'  WriteRegStr HKCU "{capabilities_key}\\FileAssociations" ".{extension}" "{prog_id}"',
+            ]
+        )
     return "\n".join(lines)
 
 
@@ -1110,6 +1133,11 @@ def windows_protocol_unregistration_script(identity: ReleaseIdentity) -> str:
         lines.append(
             f'  DeleteRegKey HKCU "Software\\Classes\\{identity.app_identifier}.{scheme}"'
         )
+    for extension in XSHELL_SESSION_EXTENSIONS:
+        lines.append(
+            f'  DeleteRegKey HKCU "Software\\Classes\\{identity.app_identifier}.{extension}"'
+        )
+        lines.append(f'  DeleteRegKey HKCU "Software\\Classes\\.{extension}"')
     return "\n".join(lines)
 
 

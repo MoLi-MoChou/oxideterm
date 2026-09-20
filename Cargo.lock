@@ -8410,6 +8410,7 @@ dependencies = [
  "serde_json",
  "url",
  "zeroize",
+ "zip",
 ]
 
 [[package]]

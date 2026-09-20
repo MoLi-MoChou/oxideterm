@@ -142,6 +142,22 @@ class WindowsInstallerScriptTests(unittest.TestCase):
         )
         self.assertIn('IfFileExists "$DESKTOP\\OxideTerm.lnk"', script)
 
+    def test_installer_registers_xshell_session_file_associations(self) -> None:
+        identity = self.identity()
+        script = package_native.windows_installer_script(
+            binary=Path("oxideterm-native.exe"),
+            version="2.0.23",
+            identity=identity,
+            installer_root=Path(r"C:\dist\nsis-windows_x64"),
+            installer_path=Path(r"C:\dist\OxideTerm_setup.exe"),
+            icon_path=Path(r"C:\icons\icon.ico"),
+        )
+
+        for extension in package_native.XSHELL_SESSION_EXTENSIONS:
+            self.assertIn(f'".{extension}" "{identity.app_identifier}.{extension}"', script)
+            self.assertIn(f'Software\\Classes\\.{extension}', script)
+        self.assertIn('FileAssociations', script)
+
     def test_installer_registers_connection_uri_capabilities_without_embedding_credentials(self) -> None:
         identity = self.identity()
         script = package_native.windows_installer_script(
@@ -167,6 +183,10 @@ class MacosConnectionUriTests(unittest.TestCase):
         self.assertEqual(
             plist["CFBundleURLTypes"][0]["CFBundleURLSchemes"],
             list(package_native.CONNECTION_URI_SCHEMES),
+        )
+        self.assertEqual(
+            plist["CFBundleDocumentTypes"][0]["CFBundleTypeExtensions"],
+            list(package_native.XSHELL_SESSION_EXTENSIONS),
         )
 
 

@@ -12,6 +12,7 @@ percent-encoding.workspace = true
 serde.workspace = true
 url.workspace = true
 zeroize.workspace = true
+zip.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
