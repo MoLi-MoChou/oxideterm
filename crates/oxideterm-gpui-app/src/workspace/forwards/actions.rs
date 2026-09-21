@@ -142,10 +142,47 @@ impl WorkspaceApp {
         port: DetectedPort,
         cx: &mut Context<Self>,
     ) {
+        // kubectl NodePorts (k8s:ns/svc) must target the node address, not
+        // 0.0.0.0 / 127.0.0.1 — kube-proxy answers on the primary IP
+        // (e.g. 172.21.17.126). Detection fills bind_addr from HOSTIP.
+        let is_kube = port
+            .process_name
+            .as_deref()
+            .is_some_and(|name| name.starts_with("k8s:"));
+        let target_host = if is_kube {
+            if !port.bind_addr.is_empty()
+                && port.bind_addr != "0.0.0.0"
+                && port.bind_addr != "::"
+                && port.bind_addr != "*"
+                && port.bind_addr != "127.0.0.1"
+                && port.bind_addr != "localhost"
+            {
+                port.bind_addr.clone()
+            } else {
+                self.ssh_nodes
+                    .get(&node_id)
+                    .map(|node| node.endpoint.host.clone())
+                    .filter(|host| {
+                        !host.is_empty()
+                            && host != "127.0.0.1"
+                            && host != "localhost"
+                            && host != "::1"
+                    })
+                    .unwrap_or_else(|| port.bind_addr.clone())
+            }
+        } else if !port.bind_addr.is_empty()
+            && port.bind_addr != "0.0.0.0"
+            && port.bind_addr != "::"
+            && port.bind_addr != "*"
+        {
+            port.bind_addr.clone()
+        } else {
+            FORWARDS_DEFAULT_TARGET_HOST.to_string()
+        };
         let mut rule = ForwardRule::local(
             FORWARDS_DEFAULT_BIND_ADDRESS,
             port.port,
-            FORWARDS_DEFAULT_TARGET_HOST,
+            &target_host,
             port.port,
         );
         rule.description = port
@@ -168,7 +205,12 @@ impl WorkspaceApp {
             true,
             ForwardingRuntimeOperation::Create {
                 rule,
-                check_health: true,
+                // Keep health check when we have a real node IP; skip only when
+                // still stuck on loopback placeholders that kube-proxy rejects.
+                check_health: !(is_kube
+                    && (target_host == "127.0.0.1"
+                        || target_host == "localhost"
+                        || target_host.is_empty())),
             },
             cx,
         );
