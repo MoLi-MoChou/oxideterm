@@ -288,6 +288,41 @@ impl NodeRouter {
             })
     }
 
+    /// Dedicated secondary SSH using credentials already on the node snapshot.
+    /// Port-forwarding uses this so MaxSessions=1 bastions do not multiplex
+    /// tunnels onto the interactive shell connection.
+    pub async fn acquire_dedicated_connection_reusing_credentials(
+        &self,
+        node_id: &NodeId,
+        consumer: ConnectionConsumer,
+    ) -> Result<DedicatedConnectionLease, RouteError> {
+        self.resolve_connection_wait(node_id, Duration::from_secs(15))
+            .await?;
+        let runtime_snapshot = self
+            .node_runtime_snapshot(node_id)
+            .ok_or_else(|| RouteError::NodeNotFound(node_id.0.clone()))?;
+        let parent_connection_id = runtime_snapshot
+            .parent_id
+            .map(|parent_id| {
+                self.connection_id_for_node(&parent_id)
+                    .ok_or_else(|| RouteError::ParentNotConnected(parent_id.0))
+            })
+            .transpose()?;
+        SshTransportClient::new(runtime_snapshot.config)
+            .connect_dedicated_consumer_with_registry(
+                self.registry.clone(),
+                consumer,
+                parent_connection_id,
+            )
+            .await
+            .map_err(|_| {
+                RouteError::CapabilityUnavailable(
+                    "Dedicated SSH consumer connection failed".to_string(),
+                )
+            })
+    }
+
+
     pub fn release_consumer(&self, connection_id: &str, consumer: &ConnectionConsumer) {
         self.registry.release(connection_id, consumer);
     }
