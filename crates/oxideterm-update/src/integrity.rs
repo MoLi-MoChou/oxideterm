@@ -6,7 +6,7 @@ use minisign_verify::{PublicKey, Signature};
 
 use crate::NativeUpdateError;
 
-pub const OXIDETERM_UPDATER_PUBKEY: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDM2RTE5RDY5OTJCNTdFQkIKUldTN2ZyV1NhWjNoTnJFZ3p6T2s0WEtNaTVTWUhpUW1LdnRjTlpEaGZsTTAzaTJOSll1bVhPem4K";
+pub const OXIDETERM_UPDATER_PUBKEY: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXkgMkNGMEQ5MzQzQ0VGMkE1RQpSV1JlS3U4OE5ObndMR0xldGd5R1o3Tk9ORk1maVFkU0lLcnAzZXd1eGxSbUV4UktkMXVjM2c2Zgo=";
 
 pub fn verify_minisign_signature(
     data: &[u8],
