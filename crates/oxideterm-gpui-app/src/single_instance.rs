@@ -230,12 +230,12 @@ fn acquire_or_forward_with_paths(
                 connection_launch,
                 session_file_launch,
             )
-                .with_context(|| {
-                    format!(
-                        "failed to forward launch request through {}",
-                        paths.state_path.display()
-                    )
-                })?;
+            .with_context(|| {
+                format!(
+                    "failed to forward launch request through {}",
+                    paths.state_path.display()
+                )
+            })?;
             Ok(SingleInstanceOutcome::Forwarded)
         }
         Err(error) => Err(error).with_context(|| {
@@ -528,8 +528,13 @@ mod tests {
             let primary = if already_running {
                 acquire_or_forward_with_paths(paths.clone(), None, None, false).unwrap()
             } else {
-                acquire_or_forward_with_paths(paths.clone(), Some(request_path.clone()), None, false)
-                    .unwrap()
+                acquire_or_forward_with_paths(
+                    paths.clone(),
+                    Some(request_path.clone()),
+                    None,
+                    false,
+                )
+                .unwrap()
             };
             let SingleInstanceOutcome::Primary {
                 _guard: guard,
@@ -541,7 +546,8 @@ mod tests {
             };
             let launch = if already_running {
                 assert!(matches!(
-                    acquire_or_forward_with_paths(paths, Some(request_path.clone()), None, false).unwrap(),
+                    acquire_or_forward_with_paths(paths, Some(request_path.clone()), None, false)
+                        .unwrap(),
                     SingleInstanceOutcome::Forwarded
                 ));
                 let receiver = receiver.lock().unwrap();

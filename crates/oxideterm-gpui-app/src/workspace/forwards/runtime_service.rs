@@ -8,8 +8,7 @@ use oxideterm_remote_desktop::RemoteDesktopEndpoint;
 #[cfg(test)]
 use oxideterm_ssh::ConnectionPoolConfig;
 use oxideterm_ssh::{
-    DedicatedConnectionLease,
-    ReconnectForwardRuleSnapshot, SshConnectionRegistry
+    DedicatedConnectionLease, ReconnectForwardRuleSnapshot, SshConnectionRegistry,
 };
 use std::{
     collections::HashSet,

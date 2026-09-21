@@ -78,9 +78,7 @@ fn ssh_config_from_temporary_launch(
         // Aggressive client keepalive for ephemeral/.xsh NAT paths. Uses the
         // russh keepalive@openssh.com frame only — no extra SSH channels
         // (safe for MaxSessions=1 bastions that already skip auxiliary SFTP).
-        keepalive_interval_secs: Some(
-            oxideterm_ssh::EPHEMERAL_SSH_CLIENT_KEEPALIVE_INTERVAL_SECS,
-        ),
+        keepalive_interval_secs: Some(oxideterm_ssh::EPHEMERAL_SSH_CLIENT_KEEPALIVE_INTERVAL_SECS),
         ..SshConfig::default()
     }
 }
