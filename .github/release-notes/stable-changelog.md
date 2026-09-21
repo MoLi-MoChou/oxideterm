@@ -3,6 +3,46 @@
 Stable releases are listed newest first. The release workflow uses each versioned
 section as the detailed changelog attached to the corresponding GitHub Release.
 
+## 2.0.31
+
+### English
+
+OxideTerm 2.0.31 is the MoLi-MoChou fork release focused on bastion `.xsh` / Kubernetes ops workflows and in-app updates against this repository.
+
+#### 🔄 Auto-update (fork)
+
+- Pointed the stable and beta updater feeds at `MoLi-MoChou/oxideterm` (`latest.json` / `updater-beta`).
+- Embedded the fork minisign public key so GitHub Release assets signed with the fork key verify correctly.
+- First install of this build is required for already-installed preview packages that still checked upstream; later checks use the fork feed.
+
+#### ☸️ Kubernetes NodePort forwarding
+
+- Remote listening-port scan now records the node primary IPv4 (`HOSTIP`) instead of advertising `0.0.0.0` for kubectl NodePorts.
+- One-click local forwards target that host IP so kube-proxy NodePorts are reachable (fixes `Target port localhost:… is not reachable` when the service answers on the node address such as `172.21.17.126`).
+
+#### 🔐 Bastion `.xsh` auth
+
+- When a session targets loopback and no usable plaintext password is present (including Xshell-encrypted `Password=`), connect with an empty password instead of falling through to an unavailable SSH agent — matching Netcatty behavior for bastion-issued `.xsh` files.
+
+### 中文
+
+OxideTerm 2.0.31 为 MoLi-MoChou 分支版本，面向堡垒机 `.xsh` / Kubernetes 运维场景，并把应用内更新指向本仓库。
+
+#### 🔄 自动更新（本 fork）
+
+- 稳定版 / 测试版更新源改为 `MoLi-MoChou/oxideterm`（`latest.json` / `updater-beta`）。
+- 内置 fork 的 minisign 公钥，与本仓库 GitHub Release 签名一致。
+- 仍指向上游的旧预览包需先手动安装本版一次；之后「检查更新」走本 fork。
+
+#### ☸️ Kubernetes NodePort 转发
+
+- 远程监听端口扫描为 kubectl NodePort 记录节点主 IPv4（`HOSTIP`），不再使用 `0.0.0.0`。
+- 一键本地转发指向该 IP，避免 kube-proxy 只在节点地址（如 `172.21.17.126`）应答时出现 `Target port localhost:… is not reachable`。
+
+#### 🔐 堡垒机 `.xsh` 认证
+
+- 目标为回环地址且没有可用明文密码（含 Xshell 加密的 `Password=`）时，改用空密码连接，而不再落到不可用的 SSH agent，行为与 Netcatty 对齐。
+
 ## 2.0.30
 
 ### English
