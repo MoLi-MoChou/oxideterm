@@ -178,6 +178,18 @@ pub fn parse_xshell_session_text(
         PasswordField::Omitted | PasswordField::Encrypted => None,
     };
 
+    // Netcatty parity: bastion-issued .xsh sessions land on loopback with an
+    // encrypted (unusable) or omitted Password. Xshell accepts Enter at the
+    // password prompt; mirror that with an empty password instead of falling
+    // through to SSH agent. Do not override an explicit key path.
+    let password = match password {
+        Some(password) => Some(password),
+        None if key_path.is_none() && is_loopback_host(&host) => {
+            Some(Zeroizing::new(String::new()))
+        }
+        None => None,
+    };
+
     Ok(TemporarySshLaunch {
         username,
         host,
@@ -185,6 +197,11 @@ pub fn parse_xshell_session_text(
         password,
         key_path,
     })
+}
+
+fn is_loopback_host(host: &str) -> bool {
+    let host = host.trim().trim_matches(|ch| ch == '[' || ch == ']').to_ascii_lowercase();
+    matches!(host.as_str(), "127.0.0.1" | "localhost" | "::1")
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -353,13 +370,51 @@ Password=PCZencryptedNotUsable\n";
     }
 
     #[test]
-    fn parse_maps_host_port_username_and_ignores_encrypted_password() {
+    fn parse_maps_host_port_username_and_loopback_encrypted_becomes_empty_password() {
         let launch = parse_xshell_session_text(NETCATTY_SAMPLE, None).unwrap();
         assert_eq!(launch.host, "127.0.0.1");
         assert_eq!(launch.port, 59759);
         assert_eq!(launch.username, "root");
+        // Bastion loopback: encrypted Password is unusable → empty password (Netcatty).
+        assert_eq!(launch.password.as_ref().map(|value| value.as_str()), Some(""));
+        assert!(launch.key_path.is_none());
+    }
+
+    #[test]
+    fn omitted_password_on_loopback_becomes_empty_password() {
+        let launch = parse_xshell_session_text(
+            "[CONNECTION]\nHost=127.0.0.1\nPort=49839\nProtocol=SSH\n\n             [CONNECTION:AUTHENTICATION]\nUserName=root\n",
+            None,
+        )
+        .unwrap();
+        assert_eq!(launch.host, "127.0.0.1");
+        assert_eq!(launch.port, 49839);
+        assert_eq!(launch.username, "root");
+        assert_eq!(launch.password.as_ref().map(|value| value.as_str()), Some(""));
+        assert!(launch.key_path.is_none());
+    }
+
+    #[test]
+    fn encrypted_password_on_non_loopback_stays_none() {
+        let launch = parse_xshell_session_text(
+            "[CONNECTION]\nHost=10.0.0.8\nPort=22\nProtocol=SSH\n\n             [CONNECTION:AUTHENTICATION]\nUserName=root\nPassword=PCZencryptedNotUsable\n",
+            None,
+        )
+        .unwrap();
+        assert_eq!(launch.host, "10.0.0.8");
         assert!(launch.password.is_none());
         assert!(launch.key_path.is_none());
+    }
+
+    #[test]
+    fn loopback_with_explicit_key_does_not_force_empty_password() {
+        let launch = parse_xshell_session_text(
+            "[CONNECTION]\nHost=127.0.0.1\nPort=2222\nProtocol=SSH\n\n             [AUTHENTICATION]\nUserName=root\nPrivateKey=/tmp/id_rsa\nPassword=PCZencrypted\n",
+            None,
+        )
+        .unwrap();
+        assert_eq!(launch.key_path.as_deref(), Some("/tmp/id_rsa"));
+        assert!(launch.password.is_none());
     }
 
     #[test]
