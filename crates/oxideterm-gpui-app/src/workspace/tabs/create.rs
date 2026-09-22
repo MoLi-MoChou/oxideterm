@@ -2102,7 +2102,7 @@ mod create_tests {
         ));
 
         let mut changed_legacy_policy = requested.clone();
-        changed_legacy_policy.legacy_ssh_compatibility = true;
+        changed_legacy_policy.legacy_ssh_compatibility = !requested.legacy_ssh_compatibility;
         assert!(!saved_node_route_matches_config(
             &router,
             &node_id,
