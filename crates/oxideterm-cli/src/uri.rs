@@ -34,9 +34,8 @@ pub fn run(args: ConnectionUriArgs) -> CliResult<i32> {
     let trimmed = target.trim().trim_matches(|ch| matches!(ch, '"' | '\''));
     let path = Path::new(trimmed);
     let launch = if is_xshell_session_path(path) {
-        parse_xshell_session_path(path, current_username().as_deref()).map_err(|error| {
-            CliError::new("invalid_xshell_session", error.to_string(), false)
-        })?
+        parse_xshell_session_path(path, current_username().as_deref())
+            .map_err(|error| CliError::new("invalid_xshell_session", error.to_string(), false))?
     } else {
         parse_connection_uri(trimmed, current_username().as_deref())
             .map_err(|error| CliError::new("invalid_connection_uri", error.to_string(), false))?

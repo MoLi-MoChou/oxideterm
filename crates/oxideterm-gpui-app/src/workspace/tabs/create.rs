@@ -78,9 +78,7 @@ fn ssh_config_from_temporary_launch(
         // Aggressive client keepalive for ephemeral/.xsh NAT paths. Uses the
         // russh keepalive@openssh.com frame only — no extra SSH channels
         // (safe for MaxSessions=1 bastions that already skip auxiliary SFTP).
-        keepalive_interval_secs: Some(
-            oxideterm_ssh::EPHEMERAL_SSH_CLIENT_KEEPALIVE_INTERVAL_SECS,
-        ),
+        keepalive_interval_secs: Some(oxideterm_ssh::EPHEMERAL_SSH_CLIENT_KEEPALIVE_INTERVAL_SECS),
         ..SshConfig::default()
     }
 }
@@ -2104,7 +2102,7 @@ mod create_tests {
         ));
 
         let mut changed_legacy_policy = requested.clone();
-        changed_legacy_policy.legacy_ssh_compatibility = true;
+        changed_legacy_policy.legacy_ssh_compatibility = !requested.legacy_ssh_compatibility;
         assert!(!saved_node_route_matches_config(
             &router,
             &node_id,
