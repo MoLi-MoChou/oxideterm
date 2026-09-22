@@ -481,7 +481,11 @@ fn should_prefer_kube_process_label(process_name: Option<&str>) -> bool {
 
 fn parse_remote_host_ip(output: &str) -> Option<String> {
     let section = extract_section(output, "HOSTIP")?;
-    for line in section.lines().map(str::trim).filter(|line| !line.is_empty()) {
+    for line in section
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+    {
         if looks_like_usable_ipv4(line) {
             return Some(line.to_string());
         }

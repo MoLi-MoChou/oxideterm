@@ -8,12 +8,7 @@
 //! native file-open, matching Netcatty's host/port/username deep-link behavior
 //! while also accepting empty passwords for bastion one-shot flows.
 
-use std::{
-    collections::BTreeMap,
-    fs,
-    io::Read,
-    path::Path,
-};
+use std::{collections::BTreeMap, fs, io::Read, path::Path};
 
 use zeroize::Zeroizing;
 
@@ -37,9 +32,7 @@ impl std::fmt::Display for ParseXshellSessionError {
             Self::InvalidPath => formatter.write_str("path is not an Xshell .xsh or .xts session"),
             Self::Read => formatter.write_str("failed to read Xshell session file"),
             Self::Parse => formatter.write_str("failed to parse Xshell session file"),
-            Self::UnsupportedProtocol => {
-                formatter.write_str("Xshell session protocol is not SSH")
-            }
+            Self::UnsupportedProtocol => formatter.write_str("Xshell session protocol is not SSH"),
             Self::MissingHost => formatter.write_str("Xshell session is missing a host"),
             Self::EmptyArchive => {
                 formatter.write_str("Xshell archive contains no SSH session files")
@@ -75,8 +68,7 @@ pub fn parse_xshell_session_path(
         return parse_xshell_archive_path(path, default_username);
     }
     let content = fs::read_to_string(path).map_err(|_| ParseXshellSessionError::Read)?;
-    parse_xshell_session_text(&content, default_username)
-        .map(NativeConnectionLaunch::Ssh)
+    parse_xshell_session_text(&content, default_username).map(NativeConnectionLaunch::Ssh)
 }
 
 /// Parse Xshell session INI text into a temporary SSH launch.
@@ -200,7 +192,10 @@ pub fn parse_xshell_session_text(
 }
 
 fn is_loopback_host(host: &str) -> bool {
-    let host = host.trim().trim_matches(|ch| ch == '[' || ch == ']').to_ascii_lowercase();
+    let host = host
+        .trim()
+        .trim_matches(|ch| ch == '[' || ch == ']')
+        .to_ascii_lowercase();
     matches!(host.as_str(), "127.0.0.1" | "localhost" | "::1")
 }
 
@@ -273,7 +268,10 @@ fn parse_ini_sections(text: &str) -> BTreeMap<String, BTreeMap<String, String>> 
         if line.is_empty() || line.starts_with(';') || line.starts_with('#') {
             continue;
         }
-        if let Some(name) = line.strip_prefix('[').and_then(|value| value.strip_suffix(']')) {
+        if let Some(name) = line
+            .strip_prefix('[')
+            .and_then(|value| value.strip_suffix(']'))
+        {
             current = name.trim().to_string();
             sections.entry(current.clone()).or_default();
             continue;
@@ -376,7 +374,10 @@ Password=PCZencryptedNotUsable\n";
         assert_eq!(launch.port, 59759);
         assert_eq!(launch.username, "root");
         // Bastion loopback: encrypted Password is unusable → empty password (Netcatty).
-        assert_eq!(launch.password.as_ref().map(|value| value.as_str()), Some(""));
+        assert_eq!(
+            launch.password.as_ref().map(|value| value.as_str()),
+            Some("")
+        );
         assert!(launch.key_path.is_none());
     }
 
@@ -390,7 +391,10 @@ Password=PCZencryptedNotUsable\n";
         assert_eq!(launch.host, "127.0.0.1");
         assert_eq!(launch.port, 49839);
         assert_eq!(launch.username, "root");
-        assert_eq!(launch.password.as_ref().map(|value| value.as_str()), Some(""));
+        assert_eq!(
+            launch.password.as_ref().map(|value| value.as_str()),
+            Some("")
+        );
         assert!(launch.key_path.is_none());
     }
 
@@ -428,7 +432,10 @@ Password=PCZencryptedNotUsable\n";
         assert_eq!(launch.username, "ops");
         assert_eq!(launch.host, "127.0.0.1");
         assert_eq!(launch.port, 2222);
-        assert_eq!(launch.password.as_ref().map(|value| value.as_str()), Some(""));
+        assert_eq!(
+            launch.password.as_ref().map(|value| value.as_str()),
+            Some("")
+        );
         assert!(launch.key_path.is_none());
     }
 
@@ -488,10 +495,8 @@ Password=PCZencryptedNotUsable\n";
     #[test]
     fn xts_archive_opens_first_ssh_session() {
         use std::io::Write;
-        let dir = std::env::temp_dir().join(format!(
-            "oxideterm-xsh-archive-{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("oxideterm-xsh-archive-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         let archive_path = dir.join("sessions.xts");
