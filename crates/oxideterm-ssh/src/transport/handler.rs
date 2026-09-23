@@ -101,9 +101,10 @@ async fn authenticate_proxy_hop(
         prompt_handler,
         managed_key_resolver,
         None,
-        // Proxy hops use the same KBI prompt and fallback rules as target
-        // hosts so bastions and MFA jump boxes do not become a special case.
-        AuthenticationOptions::default(),
+        // Proxy hops follow the same auth-method rules as the target host:
+        // Password never starts SSH keyboard-interactive; only the TwoFactor
+        // (KeyboardInteractive) method does.
+        AuthenticationOptions::for_auth_method(&config.auth),
     )
     .await
 }
@@ -497,12 +498,12 @@ async fn authenticate(
         prompt_handler,
         managed_key_resolver,
         connection_progress,
-        AuthenticationOptions::default(),
+        AuthenticationOptions::for_auth_method(&config.auth),
     )
     .await
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct AuthenticationOptions {
     password_kbi_fallback: bool,
     interactive_kbi_chain: bool,
@@ -513,6 +514,34 @@ impl Default for AuthenticationOptions {
         Self {
             password_kbi_fallback: true,
             interactive_kbi_chain: true,
+        }
+    }
+}
+
+impl AuthenticationOptions {
+    /// Select SSH keyboard-interactive policy from the configured auth method.
+    ///
+    /// Explicit password login must use the SSH `password` method only. Many
+    /// servers advertise `password` while `KbdInteractiveAuthentication no`;
+    /// starting keyboard-interactive there closes the session preauth with no
+    /// `Failed password` log. Only the TwoFactor / KeyboardInteractive method
+    /// may start SSH keyboard-interactive.
+    fn for_auth_method(auth: &AuthMethod) -> Self {
+        match auth {
+            AuthMethod::Password { .. } => Self {
+                password_kbi_fallback: false,
+                interactive_kbi_chain: false,
+            },
+            AuthMethod::KeyboardInteractive => Self {
+                // Primary method is already keyboard-interactive.
+                password_kbi_fallback: false,
+                interactive_kbi_chain: false,
+            },
+            AuthMethod::KerberosPreferred { fallback, .. } => Self::for_auth_method(fallback),
+            AuthMethod::Key { .. }
+            | AuthMethod::Agent
+            | AuthMethod::ManagedKey { .. }
+            | AuthMethod::Certificate { .. } => Self::default(),
         }
     }
 }
@@ -913,5 +942,53 @@ async fn authenticate_password(
         .map_err(|error| SshTransportError::AuthenticationFailed(error.to_string()))
     } else {
         Ok(result)
+    }
+}
+
+#[cfg(test)]
+mod authentication_options_tests {
+    use super::{AuthMethod, AuthenticationOptions};
+
+    #[test]
+    fn password_auth_disables_ssh_keyboard_interactive_paths() {
+        let options = AuthenticationOptions::for_auth_method(&AuthMethod::password("secret"));
+        assert_eq!(
+            options,
+            AuthenticationOptions {
+                password_kbi_fallback: false,
+                interactive_kbi_chain: false,
+            }
+        );
+
+        let prompted = AuthenticationOptions::for_auth_method(&AuthMethod::password_prompt());
+        assert_eq!(prompted, options);
+    }
+
+    #[test]
+    fn keyboard_interactive_auth_is_two_factor_only_path() {
+        let options =
+            AuthenticationOptions::for_auth_method(&AuthMethod::KeyboardInteractive);
+        assert!(!options.password_kbi_fallback);
+        assert!(!options.interactive_kbi_chain);
+    }
+
+    #[test]
+    fn kerberos_preferred_inherits_password_hardening() {
+        let auth = AuthMethod::kerberos_preferred(AuthMethod::password("secret"), None, false);
+        let options = AuthenticationOptions::for_auth_method(&auth);
+        assert_eq!(
+            options,
+            AuthenticationOptions {
+                password_kbi_fallback: false,
+                interactive_kbi_chain: false,
+            }
+        );
+    }
+
+    #[test]
+    fn publickey_auth_keeps_partial_success_kbi_chain() {
+        let options = AuthenticationOptions::for_auth_method(&AuthMethod::Agent);
+        assert_eq!(options, AuthenticationOptions::default());
+        assert!(options.interactive_kbi_chain);
     }
 }
