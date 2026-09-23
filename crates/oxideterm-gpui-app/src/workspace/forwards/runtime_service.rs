@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 // Copyright (C) 2026 AnalyseDeCircuit
 // SPDX-License-Identifier: GPL-3.0-only
 
@@ -6,7 +7,9 @@ use crate::workspace::delivery;
 use oxideterm_remote_desktop::RemoteDesktopEndpoint;
 #[cfg(test)]
 use oxideterm_ssh::ConnectionPoolConfig;
-use oxideterm_ssh::{ReconnectForwardRuleSnapshot, SshConnectionRegistry};
+use oxideterm_ssh::{
+    DedicatedConnectionLease, ReconnectForwardRuleSnapshot, SshConnectionRegistry,
+};
 use std::{
     collections::HashSet,
     sync::{
@@ -154,6 +157,8 @@ pub(in crate::workspace) struct ForwardingRuntimeService {
     single_channel_forwarding_error: Arc<String>,
     bindings: Arc<Mutex<ForwardingBindingState>>,
     remote_desktop_tunnels: Arc<Mutex<RemoteDesktopTunnelState>>,
+    /// Keeps dedicated forward transports alive for MaxSessions=1 bastions.
+    dedicated_leases: Arc<Mutex<HashMap<String, DedicatedConnectionLease>>>,
 }
 
 impl ForwardingRuntimeService {
@@ -172,6 +177,7 @@ impl ForwardingRuntimeService {
             single_channel_forwarding_error: Arc::new(single_channel_forwarding_error),
             bindings: Arc::new(Mutex::new(ForwardingBindingState::default())),
             remote_desktop_tunnels: Arc::new(Mutex::new(RemoteDesktopTunnelState::default())),
+            dedicated_leases: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -993,12 +999,24 @@ impl ForwardingRuntimeService {
         session_id: &str,
         node_id: Option<&NodeId>,
     ) -> Option<String> {
+        // Dropping a dedicated lease releases its consumer; avoid a second release
+        // against the same connection_id (and never fall back onto the shell node).
+        let had_dedicated_lease = self
+            .dedicated_leases
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .remove(session_id)
+            .is_some();
         let consumer = ConnectionConsumer::PortForward(session_id.to_string());
         let connection_id = if let Some((connection_id, stored_consumer)) =
             self.binding_state().remove(session_id)
         {
-            self.ssh_registry.release(&connection_id, &stored_consumer);
+            if !had_dedicated_lease {
+                self.ssh_registry.release(&connection_id, &stored_consumer);
+            }
             Some(connection_id)
+        } else if had_dedicated_lease {
+            None
         } else if let Some(manager) = self.registry.get(session_id) {
             // The manager may be registered before its worker delivery is
             // applied, so explicit disconnect also releases this fallback.
@@ -1152,39 +1170,44 @@ impl ForwardingRuntimeService {
             return Err(FORWARDING_SESSION_SHUTTING_DOWN.to_string());
         }
         let session_id = Self::session_id_for_node(node_id);
-        if self
-            .node_router
-            .node_runtime_snapshot(node_id)
-            .is_some_and(|snapshot| {
-                snapshot
-                    .config
-                    .ssh_channel_strategy
-                    .requires_dedicated_consumers()
-            })
-        {
-            // Forward listeners can create multiple concurrent SSH channels;
-            // a per-consumer transport cannot make that safe on one-channel appliances.
-            return Err(self.single_channel_forwarding_error.as_ref().clone());
-        }
         let manager_existed = self.registry.get(&session_id).is_some();
         let consumer = ConnectionConsumer::PortForward(session_id.clone());
-        let resolved = self
+        // Always open forwards on a dedicated secondary SSH session. Sharing the
+        // interactive shell transport breaks MaxSessions=1 bastions (shell dies
+        // when the forward channel opens). DedicatedPerConsumer nodes previously
+        // hard-failed here; they now get an isolated transport instead.
+        let _ = self.single_channel_forwarding_error.as_ref();
+        let lease = self
             .node_router
-            .acquire_connection_wait(node_id, consumer.clone(), Duration::from_secs(15))
+            .acquire_dedicated_connection_reusing_credentials(node_id, consumer.clone())
             .await
             .map_err(|error| error.to_string())?;
-        let connection_id = resolved.connection_id.clone();
+        let connection_id = lease.connection_id().to_string();
+        let handle = lease.handle().clone();
+        self.dedicated_leases
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .insert(session_id.clone(), lease);
+
         if !self.registry.accepts_new_work() {
-            self.node_router.release_consumer(&connection_id, &consumer);
+            let _ = self
+                .dedicated_leases
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .remove(&session_id);
             return Err(FORWARDING_SESSION_SHUTTING_DOWN.to_string());
         }
         let (manager, _restored) = self
             .registry
-            .register_or_rebind(session_id.clone(), resolved.handle)
+            .register_or_rebind(session_id.clone(), handle)
             .await;
         if !self.registry.accepts_new_work() {
             let _ = self.registry.remove(&session_id).await;
-            self.node_router.release_consumer(&connection_id, &consumer);
+            let _ = self
+                .dedicated_leases
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .remove(&session_id);
             return Err(FORWARDING_SESSION_SHUTTING_DOWN.to_string());
         }
 
@@ -1307,7 +1330,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn single_channel_nodes_reject_forwarding_before_connection_acquisition() {
+    fn single_channel_nodes_no_longer_hard_reject_forwarding_up_front() {
         let service = ForwardingRuntimeService::test_fixture();
         let node_id = NodeId::new("single-channel-node");
         service.node_router.upsert_node(
@@ -1323,7 +1346,9 @@ mod tests {
             .task_runtime
             .block_on(service.manager_for_node_async(&node_id, None));
 
-        assert_eq!(
+        // Dedicated re-auth cannot complete without a live peer in this fixture,
+        // but we must not short-circuit with the old MaxSessions dead-end string.
+        assert_ne!(
             result.err().as_deref(),
             Some("single-channel forwarding unavailable")
         );

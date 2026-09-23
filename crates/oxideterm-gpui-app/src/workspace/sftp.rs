@@ -358,13 +358,11 @@ impl SftpRemoteBackend {
         else {
             return Err("SFTP backend is not node-backed".to_string());
         };
-        if !channel_strategy.requires_dedicated_consumers() {
-            return router
-                .resolve_connection(node_id)
-                .await
-                .map(|resolved| resolved.handle)
-                .map_err(|error| error.to_string());
-        }
+        // Always keep SFTP off the interactive shell transport. Bastions with
+        // MaxSessions=1 drop the shell when a second channel opens on the same
+        // connection; dedicated re-auth isolates browse/transfer even when the
+        // node still multiplexes terminals.
+        let _ = channel_strategy;
 
         let mut slot = dedicated_slot.lock().await;
         if let Some(lease) = slot.as_ref()
@@ -425,11 +423,10 @@ impl SftpRemoteBackend {
             Self::Node {
                 router,
                 node_id,
-                channel_strategy,
                 prompt_handler,
                 managed_key_resolver,
                 ..
-            } if channel_strategy.requires_dedicated_consumers() => {
+            } => {
                 let consumer = ConnectionConsumer::Sftp(format!(
                     "{}:transfer:{}",
                     node_id.0,
@@ -456,12 +453,6 @@ impl SftpRemoteBackend {
                     .with_connection_owner(owner)
                     .with_single_channel_transport())
             }
-            Self::Node {
-                router, node_id, ..
-            } => router
-                .acquire_transfer_sftp(node_id)
-                .await
-                .map_err(|error| error.to_string()),
             Self::Standalone { handle } => handle
                 .acquire_transfer_sftp()
                 .await
