@@ -3,6 +3,36 @@
 Stable releases are listed newest first. The release workflow uses each versioned
 section as the detailed changelog attached to the corresponding GitHub Release.
 
+## 2.0.32
+
+### English
+
+OxideTerm 2.0.32 keeps interactive shells alive on MaxSessions=1 bastions when opening SFTP or port forwards, and stops Password-auth sessions from starting keyboard-interactive.
+
+#### 🔐 MaxSessions=1 SFTP and tunnels
+
+- Node-backed SFTP browse and transfer always open a dedicated secondary SSH connection instead of multiplexing onto the interactive shell.
+- Local/remote port forwards reuse stored credentials on a dedicated secondary connection; DedicatedPerConsumer nodes no longer hard-fail forwarding.
+- With bastions / `.xsh` profiles that set `MaxSessions=1`, opening SFTP or a tunnel no longer kicks the terminal session.
+
+#### 🔑 Password auth without keyboard-interactive
+
+- When the saved method is Password, OxideTerm no longer starts keyboard-interactive / KBI alongside it, matching servers that reject concurrent KBI after password auth.
+
+### 中文
+
+OxideTerm 2.0.32 在 MaxSessions=1 堡垒机上打开 SFTP 或端口隧道时保持交互式 shell，并在 Password 认证时不再发起 keyboard-interactive。
+
+#### 🔐 MaxSessions=1 下的 SFTP 与隧道
+
+- 节点侧 SFTP 浏览与传输始终走独立的第二条 SSH，不再复用终端连接。
+- 本地/远程端口转发复用已存凭据走专用第二条连接；DedicatedPerConsumer 节点不再因转发直接失败。
+- 在 `MaxSessions=1` 的堡垒 / `.xsh` 上再开 SFTP 或隧道时，终端会话不再被挤掉。
+
+#### 🔑 Password 认证不再发起 KBI
+
+- 当保存的认证方式为 Password 时，不再同时发起 keyboard-interactive，避免部分服务器在密码认证后拒绝并发 KBI。
+
 ## 2.0.31
 
 ### English
